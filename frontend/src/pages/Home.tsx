@@ -1,10 +1,15 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { QualityRing, StatusChip } from "../components/Bits";
+import { ProjectWizard } from "../components/Wizards";
+import { Btn } from "../components/ui";
 
 export function Home() {
   const q = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const [wizard, setWizard] = useState(false);
+  const nav = useNavigate();
   return (
     <div className="app-home">
       <div className="brand-mark">
@@ -22,6 +27,9 @@ export function Home() {
           on a multi-V model that program managers can actually read — without losing the details
           engineers cannot afford to forget.
         </p>
+        <div className="btn-row" style={{ marginTop: 18 }}>
+          <Btn onClick={() => setWizard(true)}>Start a new product</Btn>
+        </div>
       </section>
       <div className="grid-cards">
         {(q.data || []).map((p) => (
@@ -35,7 +43,21 @@ export function Home() {
             </div>
           </Link>
         ))}
+        <button className="card" type="button" onClick={() => setWizard(true)} style={{ textAlign: "left" }}>
+          <div className="eyebrow">Create</div>
+          <h2>New complex product</h2>
+          <p>Wizard: name the product, optionally seed the first feature → requirement → function, get a V-model.</p>
+        </button>
       </div>
+      {wizard && (
+        <ProjectWizard
+          onClose={() => setWizard(false)}
+          onCreated={(id) => {
+            setWizard(false);
+            nav(`/projects/${id}/compose`);
+          }}
+        />
+      )}
     </div>
   );
 }

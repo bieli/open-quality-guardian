@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusChip } from "../components/Bits";
-import type { VNode } from "../types";
+import type { Artifact, VNode } from "../types";
+import { ArtifactEditor, RequirementWizard, VerificationWizard } from "../components/Wizards";
+import { Btn } from "../components/ui";
 
 function NodeCard({ n, on, set }: { n?: VNode; on: string; set: (k: string) => void }) {
   if (!n) return null;
@@ -28,9 +30,13 @@ export function VModelPage() {
   const q = useQuery({ queryKey: ["vmodel", id], queryFn: () => api.vmodel(id!), enabled: !!id });
   const arts = useQuery({ queryKey: ["arts", id], queryFn: () => api.artifacts(id!), enabled: !!id });
   const [key, setKey] = useState("system_architecture");
+  const [verify, setVerify] = useState(false);
+  const [addReq, setAddReq] = useState(false);
+  const [edit, setEdit] = useState<Artifact | null>(null);
   const byKey = useMemo(() => Object.fromEntries((q.data || []).map((n) => [n.key, n])), [q.data]);
   const selected = byKey[key];
   const related = (arts.data || []).filter((a) => a.v_node_key === key);
+  const verifySide = selected?.side === "verify";
 
   const row = (left: string, right: string) => (
     <div className="v-row">
@@ -46,7 +52,7 @@ export function VModelPage() {
         <div>
           <div className="eyebrow">Systems engineering</div>
           <h1>Multi-V model</h1>
-          <p className="muted small">Design on the left, verification on the right. Architecture sits in the hinge so no domain loses the system story.</p>
+          <p className="muted small">Design on the left, verification on the right. Select a station, then add work or record a verdict.</p>
         </div>
       </div>
       <div className="vmodel">
@@ -76,9 +82,20 @@ export function VModelPage() {
       </div>
       {selected && (
         <div className="card">
-          <div className="eyebrow">{selected.domain} · {selected.key}</div>
-          <h2 className="serif" style={{ margin: "8px 0" }}>{selected.name}</h2>
-          <p className="muted small">{selected.description}</p>
+          <div className="topbar" style={{ marginBottom: 8 }}>
+            <div>
+              <div className="eyebrow">{selected.domain} · {selected.key}</div>
+              <h2 className="serif" style={{ margin: "8px 0" }}>{selected.name}</h2>
+              <p className="muted small">{selected.description}</p>
+            </div>
+            <div className="btn-row">
+              {verifySide ? (
+                <Btn onClick={() => setVerify(true)}>Record verification</Btn>
+              ) : (
+                <Btn onClick={() => setAddReq(true)}>Add to this station</Btn>
+              )}
+            </div>
+          </div>
           <table>
             <thead>
               <tr>
@@ -92,7 +109,7 @@ export function VModelPage() {
             </thead>
             <tbody>
               {related.map((a) => (
-                <tr key={a.id}>
+                <tr key={a.id} onClick={() => setEdit(a)} style={{ cursor: "pointer" }}>
                   <td className="mono">{a.identifier}</td>
                   <td>{a.title}</td>
                   <td>{a.kind}</td>
@@ -107,6 +124,9 @@ export function VModelPage() {
           </table>
         </div>
       )}
+      {verify && id && <VerificationWizard projectId={id} vNodeKey={key} onClose={() => setVerify(false)} />}
+      {addReq && id && <RequirementWizard projectId={id} vNodeKey={key} onClose={() => setAddReq(false)} />}
+      {edit && id && <ArtifactEditor projectId={id} artifact={edit} onClose={() => setEdit(null)} />}
     </div>
   );
 }

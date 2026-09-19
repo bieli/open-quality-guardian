@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { QualityRing, StatusChip } from "../components/Bits";
+import { Btn } from "../components/ui";
 
 export function Overview() {
   const { id } = useParams();
@@ -19,7 +20,12 @@ export function Overview() {
           <div className="eyebrow">Quality cockpit</div>
           <h1>How healthy is this build?</h1>
         </div>
-        <QualityRing value={q?.score || 0} />
+        <div className="btn-row">
+          <Link to={`/projects/${id}/compose`}>
+            <Btn>Compose & verify</Btn>
+          </Link>
+          <QualityRing value={q?.score || 0} />
+        </div>
       </div>
       <div className="metrics">
         {[

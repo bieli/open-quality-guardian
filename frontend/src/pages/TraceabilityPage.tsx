@@ -1,11 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { LinkWizard } from "../components/Wizards";
+import { Btn } from "../components/ui";
 
 export function TraceabilityPage() {
   const { id } = useParams();
+  const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ["matrix", id], queryFn: () => api.matrix(id!), enabled: !!id });
   const links = useQuery({ queryKey: ["links", id], queryFn: () => api.links(id!), enabled: !!id });
+  const [wizard, setWizard] = useState(false);
+  const del = useMutation({
+    mutationFn: (lid: string) => api.deleteLink(id!, lid),
+    onSuccess: () => qc.invalidateQueries(),
+  });
 
   return (
     <div className="stack">
@@ -13,8 +22,9 @@ export function TraceabilityPage() {
         <div>
           <div className="eyebrow">Horizontal & vertical thread</div>
           <h1>Traceability</h1>
-          <p className="muted small">Yellow cells are the same signal PREEvision uses: a requirement still missing architecture or a function still missing a need.</p>
+          <p className="muted small">Yellow cells are missing architecture. Add or remove links as the design changes.</p>
         </div>
+        <Btn onClick={() => setWizard(true)}>Add link</Btn>
       </div>
       <div className="card" style={{ overflow: "auto" }}>
         <table>
@@ -55,6 +65,7 @@ export function TraceabilityPage() {
               <th>From</th>
               <th>Type</th>
               <th>To</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -67,11 +78,17 @@ export function TraceabilityPage() {
                 <td>
                   <span className="mono">{l.target_identifier}</span> {l.target_title}
                 </td>
+                <td>
+                  <Btn kind="ghost" onClick={() => del.mutate(l.id)}>
+                    Remove
+                  </Btn>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {wizard && id && <LinkWizard projectId={id} onClose={() => setWizard(false)} />}
     </div>
   );
 }

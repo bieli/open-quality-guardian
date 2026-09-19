@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { ProjectShell } from "./App";
 import { Home } from "./pages/Home";
+import { ComposePage } from "./pages/ComposePage";
 import { Overview } from "./pages/Overview";
 import { VModelPage } from "./pages/VModelPage";
 import { RflpPage } from "./pages/RflpPage";
@@ -16,6 +17,7 @@ export function RoutesApp() {
       <Route path="/" element={<Home />} />
       <Route path="/projects/:id" element={<ProjectShell />}>
         <Route index element={<Overview />} />
+        <Route path="compose" element={<ComposePage />} />
         <Route path="v-model" element={<VModelPage />} />
         <Route path="rflp" element={<RflpPage />} />
         <Route path="diagrams" element={<DiagramsPage />} />

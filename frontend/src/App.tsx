@@ -4,6 +4,7 @@ import { api } from "./api";
 import { QualityRing } from "./components/Bits";
 
 const links = [
+  ["compose", "Compose & wizards"],
   ["", "Overview"],
   ["v-model", "Systems V-model"],
   ["rflp", "RFLP viewpoints"],
