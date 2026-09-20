@@ -149,6 +149,77 @@ a.card:hover, button.card:hover { transform: translateY(-2px); transition: 180ms
 .tree-item .id { color: var(--crimson); font-family: "IBM Plex Mono", monospace; font-size: 11px; }
 
 .flow-wrap { height: 640px; background: #fbf7ef; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+
+.workflow-page { align-content: start; }
+.lane-legend { align-items: center; }
+.lane-legend .chip { align-self: center; height: auto; }
+.workflow-studio {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 236px;
+  height: min(74vh, 780px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.wf-palette, .wf-inspector {
+  padding: 14px 14px 18px;
+  background: var(--panel-2);
+  overflow: auto;
+}
+.wf-palette { border-right: 1px solid var(--line); }
+.wf-inspector { border-left: 1px solid var(--line); }
+.wf-canvas { min-width: 0; height: 100%; background: #fbf7ef; }
+.wf-palette-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fff; margin-top: 8px; cursor: grab; text-align: left;
+}
+.wf-palette-item:active { cursor: grabbing; }
+.wf-palette-item:hover { border-color: var(--crimson); }
+.wf-palette-item strong { display: block; font-size: 13px; }
+.wf-palette-item span { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+.wf-toolbar { display: flex; gap: 8px; background: transparent; }
+.wf-btn-inner { display: inline-flex; align-items: center; gap: 6px; }
+.wf-hint {
+  background: rgba(255,250,242,0.92); border: 1px solid var(--line);
+  border-radius: 999px; padding: 8px 14px; font-size: 12px; color: var(--muted);
+}
+.wf-node {
+  background: #d9ecfb; border: 1px solid #7ea8c9; border-radius: 16px; padding: 10px 14px;
+  min-width: 132px; font-size: 12px; text-align: center;
+  box-shadow: 0 6px 16px rgba(40,70,90,0.08);
+}
+.wf-node.selected { box-shadow: 0 0 0 2px var(--crimson); }
+.wf-node.start { background: #e7f3ee; border-color: var(--teal); border-radius: 999px; }
+.wf-node.end { background: var(--ink); color: #fffaf2; border-radius: 999px; min-width: 88px; }
+.wf-node.decision {
+  background: #fffaf2; width: 108px; height: 108px; min-width: 108px; border-radius: 8px;
+  transform: rotate(45deg); display: grid; place-items: center; padding: 8px;
+}
+.wf-node.decision span { transform: rotate(-45deg); display: block; font-size: 11px; }
+.wf-node.sync {
+  width: 12px; min-width: 12px; height: 132px; padding: 0;
+  background: var(--ink); border-radius: 2px; border: 0;
+}
+.wf-handle {
+  width: 8px; height: 8px; background: var(--crimson); border: 2px solid #fff;
+}
+.react-flow__node-lane {
+  background: transparent; border: none; padding: 0; box-shadow: none;
+}
+.wf-lane {
+  width: 100%; height: 100%;
+  background: rgba(255,250,242,0.55);
+  border: 1px dashed #c4b8a6; border-radius: 14px;
+}
+.wf-lane.selected { border-color: var(--crimson); border-style: solid; }
+.wf-lane-title {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  padding: 10px 12px 0; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.workflow-studio .react-flow__edge-text { font-size: 11px; fill: var(--ink); }
 .fn-node {
   background: #d9ecfb; border: 1px solid #7ea8c9; border-radius: 16px; padding: 10px 12px; min-width: 140px;
   font-size: 12px; text-align: center; box-shadow: 0 6px 16px rgba(40,70,90,0.08);
@@ -232,4 +303,6 @@ button, .btn { cursor: pointer; }
   .metrics, .split, .two, .three { grid-template-columns: 1fr; }
   .v-row { grid-template-columns: 1fr; }
   .v-gutter { display: none; }
+  .workflow-studio { grid-template-columns: 1fr; height: auto; }
+  .wf-canvas { height: 560px; }
 }
