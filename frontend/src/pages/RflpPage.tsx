@@ -53,8 +53,20 @@ export function RflpPage() {
   const [vp, setVp] = useState<"R" | "F" | "L" | "P">("F");
   const [wizard, setWizard] = useState(false);
   const [edit, setEdit] = useState<Artifact | null>(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
   const arts = useQuery({ queryKey: ["arts", id, activeConfigId], queryFn: () => api.artifacts(id!, undefined, activeConfigId), enabled: !!id });
-  const group = useMemo(() => (arts.data || []).filter((a) => a.viewpoint === vp), [arts.data, vp]);
+  const group = useMemo(() => {
+    let list = (arts.data || []).filter((a) => a.viewpoint === vp);
+    const term = q.trim().toLowerCase();
+    if (term) {
+      list = list.filter(
+        (a) => a.identifier.toLowerCase().includes(term) || a.title.toLowerCase().includes(term) || (a.owner || "").toLowerCase().includes(term),
+      );
+    }
+    if (status !== "all") list = list.filter((a) => a.status === status);
+    return list;
+  }, [arts.data, vp, q, status]);
   const physicalSw = group.filter((a) => a.domain === "software");
   const physicalHw = group.filter((a) => a.domain === "hardware" || a.kind === "hw_component");
   const reqStake = group.filter((a) => a.kind === "customer_feature" || a.kind === "stakeholder_need");
@@ -68,10 +80,28 @@ export function RflpPage() {
           <h1>One product, four viewpoints</h1>
           <p className="muted small">
             Same language for product owners and engineers: what is required, how it behaves, how it is allocated, and what is built.
-            Click any item to edit it.
+            Click any item to edit it. Use search when the tree grows large.
           </p>
         </div>
         <Btn onClick={() => setWizard(true)}>Add to {vp}</Btn>
+      </div>
+      <div className="facet-bar">
+        <label className="facet grow">
+          <span>Search</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter this viewpoint…" />
+        </label>
+        <label className="facet">
+          <span>Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="all">All</option>
+            {["draft", "in_review", "approved", "in_progress", "implemented", "verified", "failed", "blocked"].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <span className="small muted" style={{ alignSelf: "end", marginBottom: 8 }}>
+          {group.length} items
+        </span>
       </div>
       <div className="rflp-layout">
         <div className="rflp-rail">

@@ -361,10 +361,55 @@ class ProductConfigurationOut(OrmModel):
     selection: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConfigRuleCreate(BaseModel):
+    name: str
+    rule_type: str = "exclude"
+    when_expr: dict[str, Any] = Field(default_factory=dict)
+    then_expr: dict[str, Any] = Field(default_factory=dict)
+    description: str = ""
+
+
+class ConfigRuleOut(OrmModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    rule_type: str
+    when_expr: dict[str, Any] = Field(default_factory=dict)
+    then_expr: dict[str, Any] = Field(default_factory=dict)
+    description: str
+
+
 class ConfigDictionaryOut(BaseModel):
     variants: list[VariantOut]
     configurations: list[ProductConfigurationOut]
+    rules: list[ConfigRuleOut] = Field(default_factory=list)
 
 
 class EffectivityPatch(BaseModel):
     effectivity: dict[str, Any] = Field(default_factory=dict)
+
+
+class RequirementImportRow(BaseModel):
+    identifier: str
+    title: str
+    description: str = ""
+    kind: str = "requirement"
+    domain: str = "system"
+    owner: str = ""
+    v_node_key: str = "system_req"
+
+
+class RequirementImportIn(BaseModel):
+    rows: list[RequirementImportRow] = Field(default_factory=list)
+
+
+class BulkStatusIn(BaseModel):
+    artifact_ids: list[UUID]
+    status: str
+    progress: Optional[int] = None
+
+
+class BulkLinkIn(BaseModel):
+    source_ids: list[UUID]
+    target_id: UUID
+    link_type: str = "allocates"

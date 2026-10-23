@@ -155,9 +155,36 @@ export type ProductConfiguration = {
   selection: Record<string, string>;
 };
 
+export type ConfigRule = {
+  id: string;
+  project_id: string;
+  name: string;
+  rule_type: string;
+  when_expr: Record<string, string[]>;
+  then_expr: Record<string, string[]>;
+  description: string;
+};
+
 export type ConfigDictionary = {
   variants: Variant[];
   configurations: ProductConfiguration[];
+  rules?: ConfigRule[];
+};
+
+export type SearchResult = {
+  query: string;
+  artifacts: Artifact[];
+  bom: BomItem[];
+  findings: Finding[];
+};
+
+export type ImpactPreview = {
+  artifact: Artifact;
+  counts: Record<string, number>;
+  upstream: { id: string; identifier: string; title: string; kind: string; viewpoint: string; status: string; link_type: string }[];
+  downstream: { id: string; identifier: string; title: string; kind: string; viewpoint: string; status: string; link_type: string }[];
+  tests: { id: string; identifier: string; title: string; kind: string; viewpoint: string; status: string; link_type: string }[];
+  bom: { id: string; part_number: string; name: string; qty: number }[];
 };
 
 export type ConfigCompare = {

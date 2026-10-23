@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -267,6 +267,10 @@ def collect_findings(
     rows: list[QualityFinding] = []
 
     def emit(**kwargs: Any) -> None:
+        # Ephemeral (config-scoped) findings still need id/status for API serialization.
+        if "id" not in kwargs:
+            kwargs["id"] = uuid4()
+        kwargs.setdefault("status", "open")
         finding = QualityFinding(**kwargs)
         rows.append(finding)
         if persist:

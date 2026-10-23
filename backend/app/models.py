@@ -129,6 +129,7 @@ class Project(Base):
     configurations: Mapped[list[ProductConfiguration]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    config_rules: Mapped[list[ConfigRule]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class Artifact(Base):
@@ -278,3 +279,19 @@ class ProductConfiguration(Base):
     selection: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     project: Mapped[Project] = relationship(back_populates="configurations")
+
+
+class ConfigRule(Base):
+    """Simple include/exclude rule, e.g. sku=home excludes nav=lidar."""
+
+    __tablename__ = "config_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    rule_type: Mapped[str] = mapped_column(String(20), default="exclude")  # exclude | require
+    when_expr: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    then_expr: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    description: Mapped[str] = mapped_column(Text, default="")
+
+    project: Mapped[Project] = relationship(back_populates="config_rules")

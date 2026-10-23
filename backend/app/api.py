@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session, selectinload
 
 from app.crud import (
@@ -19,6 +20,7 @@ from app.models import (
     Artifact,
     ArtifactKind,
     BomItem,
+    ConfigRule,
     Domain,
     LifecycleStatus,
     LinkType,
@@ -36,7 +38,11 @@ from app.schemas import (
     BomItemCreate,
     BomItemOut,
     BomItemUpdate,
+    BulkLinkIn,
+    BulkStatusIn,
     ConfigDictionaryOut,
+    ConfigRuleCreate,
+    ConfigRuleOut,
     DiagramOut,
     DiagramWrite,
     FindingOut,
@@ -48,6 +54,7 @@ from app.schemas import (
     ProjectUpdate,
     QualitySummary,
     ReportOut,
+    RequirementImportIn,
     TraceLinkCreate,
     TraceLinkOut,
     VariantCreate,
@@ -153,15 +160,41 @@ def get_project(project_id: UUID, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/artifacts", response_model=list[ArtifactOut])
 def list_artifacts(
-    project_id: UUID, viewpoint: str | None = None, config_id: UUID | None = None, db: Session = Depends(get_db)
+    project_id: UUID,
+    viewpoint: str | None = None,
+    kind: str | None = None,
+    q: str | None = None,
+    config_id: UUID | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+    db: Session = Depends(get_db),
 ):
     _project(db, project_id)
     selection, _ = _ctx(db, project_id, config_id)
-    q = db.query(Artifact).filter(Artifact.project_id == project_id)
+    query = db.query(Artifact).filter(Artifact.project_id == project_id)
     if viewpoint:
-        q = q.filter(Artifact.viewpoint == viewpoint)
-    rows = q.order_by(Artifact.identifier).all()
-    return resolve_artifacts(rows, selection, keep_ancestors=True)
+        query = query.filter(Artifact.viewpoint == viewpoint)
+    if kind:
+        kinds = [k.strip() for k in kind.split(",") if k.strip()]
+        if len(kinds) == 1:
+            query = query.filter(Artifact.kind == kinds[0])
+        elif kinds:
+            query = query.filter(Artifact.kind.in_(kinds))
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (Artifact.identifier.ilike(like))
+            | (Artifact.title.ilike(like))
+            | (Artifact.description.ilike(like))
+            | (Artifact.owner.ilike(like))
+        )
+    rows = query.order_by(Artifact.identifier).all()
+    rows = resolve_artifacts(rows, selection, keep_ancestors=True)
+    if offset:
+        rows = rows[offset:]
+    if limit is not None:
+        rows = rows[: max(0, limit)]
+    return rows
 
 
 @router.post("/projects/{project_id}/artifacts", response_model=ArtifactOut)
@@ -552,7 +585,8 @@ def get_dictionary(project_id: UUID, db: Session = Depends(get_db)):
         .order_by(ProductConfiguration.name)
         .all()
     )
-    return ConfigDictionaryOut(variants=variants, configurations=configs)
+    rules = db.query(ConfigRule).filter(ConfigRule.project_id == project_id).order_by(ConfigRule.name).all()
+    return ConfigDictionaryOut(variants=variants, configurations=configs, rules=rules)
 
 
 @router.get("/projects/{project_id}/variants", response_model=list[VariantOut])
@@ -757,3 +791,277 @@ def compare_configurations(project_id: UUID, left: UUID, right: UUID, db: Sessio
         "tests": diff(a["tests"], b["tests"], "identifier"),
         "bom": diff(a["bom"], b["bom"], "part_number"),
     }
+
+
+@router.get("/projects/{project_id}/search")
+def global_search(
+    project_id: UUID,
+    q: str,
+    config_id: UUID | None = None,
+    limit: int = 40,
+    db: Session = Depends(get_db),
+):
+    _project(db, project_id)
+    selection, _ = _ctx(db, project_id, config_id)
+    term = (q or "").strip()
+    if not term:
+        return {"query": q, "artifacts": [], "bom": [], "findings": []}
+    like = f"%{term}%"
+    arts = (
+        db.query(Artifact)
+        .filter(
+            Artifact.project_id == project_id,
+            (Artifact.identifier.ilike(like))
+            | (Artifact.title.ilike(like))
+            | (Artifact.owner.ilike(like))
+            | (Artifact.description.ilike(like)),
+        )
+        .order_by(Artifact.identifier)
+        .limit(200)
+        .all()
+    )
+    arts = resolve_artifacts(arts, selection, keep_ancestors=False)[:limit]
+    bom = resolve_bom(
+        db.query(BomItem)
+        .filter(
+            BomItem.project_id == project_id,
+            (BomItem.part_number.ilike(like)) | (BomItem.name.ilike(like)),
+        )
+        .limit(50)
+        .all(),
+        selection,
+    )[: min(10, limit)]
+    findings = [
+        FindingOut.model_validate(f).model_dump(mode="json")
+        for f in findings_for_view(db, project_id, selection)
+        if term.lower() in (f.title or "").lower() or term.lower() in (f.detail or "").lower()
+    ][:10]
+    return {
+        "query": term,
+        "artifacts": [ArtifactOut.model_validate(a).model_dump(mode="json") for a in arts],
+        "bom": [BomItemOut.model_validate(b).model_dump(mode="json") for b in bom],
+        "findings": findings,
+    }
+
+
+@router.get("/projects/{project_id}/impact/{artifact_id}")
+def impact_preview(project_id: UUID, artifact_id: UUID, db: Session = Depends(get_db)):
+    art = get_artifact(db, project_id, artifact_id)
+    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+    by_id = {a.id: a for a in db.query(Artifact).filter(Artifact.project_id == project_id).all()}
+    related: dict[str, list[dict]] = {
+        "upstream": [],
+        "downstream": [],
+        "tests": [],
+        "bom": [],
+    }
+    seen: set[UUID] = set()
+    for link in links:
+        other_id = None
+        bucket = None
+        if link.source_id == artifact_id:
+            other_id = link.target_id
+            bucket = "downstream"
+        elif link.target_id == artifact_id:
+            other_id = link.source_id
+            bucket = "upstream"
+        if other_id is None or other_id in seen:
+            continue
+        other = by_id.get(other_id)
+        if not other:
+            continue
+        seen.add(other_id)
+        row = {
+            "id": str(other.id),
+            "identifier": other.identifier,
+            "title": other.title,
+            "kind": other.kind.value,
+            "viewpoint": other.viewpoint.value,
+            "status": other.status.value,
+            "link_type": link.link_type.value,
+        }
+        if other.kind in {ArtifactKind.TEST_CASE, ArtifactKind.TEST_SPEC} or other.viewpoint == Viewpoint.T:
+            related["tests"].append(row)
+        else:
+            related[bucket].append(row)
+    for item in db.query(BomItem).filter(BomItem.project_id == project_id, BomItem.linked_artifact_id == artifact_id):
+        related["bom"].append(
+            {"id": str(item.id), "part_number": item.part_number, "name": item.name, "qty": item.qty}
+        )
+    return {
+        "artifact": ArtifactOut.model_validate(art).model_dump(mode="json"),
+        "counts": {k: len(v) for k, v in related.items()},
+        **related,
+    }
+
+
+@router.get("/projects/{project_id}/report.md")
+def export_report_markdown(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
+    report = get_report(project_id, config_id, db)
+    lines = [
+        f"# Quality report — {report.project.name}",
+        "",
+        f"Generated: {report.generated_at}",
+        f"Score: **{report.quality.score}/100** · Coverage {report.quality.coverage}% · "
+        f"Gaps {report.quality.open_gaps} · Critical {report.quality.critical}",
+        "",
+        "## Narrative",
+        report.narrative,
+        "",
+        "## Missing links",
+    ]
+    if not report.missing_links:
+        lines.append("- None")
+    for m in report.missing_links:
+        lines.append(f"- `{m.get('identifier')}` {m.get('title')}: {', '.join(m.get('missing') or [])}")
+    lines += ["", "## Findings"]
+    if not report.findings:
+        lines.append("- None")
+    for f in report.findings:
+        lines.append(f"- **{f.severity}** {f.title} — {f.detail}")
+    lines += ["", "## V-model stations"]
+    for n in report.v_model:
+        lines.append(
+            f"- {n.name} ({n.domain}): progress {n.progress}%, coverage {n.coverage}%, gaps {n.gaps}"
+        )
+    body = "\n".join(lines) + "\n"
+    return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
+
+
+@router.post("/projects/{project_id}/import/requirements")
+def import_requirements(project_id: UUID, payload: RequirementImportIn, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    created = []
+    for row in payload.rows:
+        existing = (
+            db.query(Artifact)
+            .filter(Artifact.project_id == project_id, Artifact.identifier == row.identifier.strip())
+            .first()
+        )
+        if existing:
+            existing.title = row.title.strip()
+            existing.description = row.description
+            existing.owner = row.owner
+            created.append(existing)
+            continue
+        art = make_artifact(
+            db,
+            project_id,
+            identifier=row.identifier,
+            title=row.title,
+            description=row.description,
+            viewpoint=Viewpoint.R,
+            kind=parse_enum(ArtifactKind, row.kind, "kind"),
+            domain=parse_enum(Domain, row.domain, "domain"),
+            owner=row.owner,
+            v_node_key=row.v_node_key or "system_req",
+            progress=10,
+            status=LifecycleStatus.DRAFT,
+        )
+        created.append(art)
+    db.commit()
+    return {"created": len(created), "artifacts": [ArtifactOut.model_validate(a) for a in created]}
+
+
+@router.post("/projects/{project_id}/bulk/status")
+def bulk_status(project_id: UUID, payload: BulkStatusIn, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    status = parse_enum(LifecycleStatus, payload.status, "status")
+    updated = 0
+    for aid in payload.artifact_ids:
+        row = get_artifact(db, project_id, aid)
+        row.status = status
+        if payload.progress is not None:
+            row.progress = max(0, min(100, int(payload.progress)))
+        updated += 1
+    db.commit()
+    return {"updated": updated}
+
+
+@router.post("/projects/{project_id}/bulk/links")
+def bulk_links(project_id: UUID, payload: BulkLinkIn, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    get_artifact(db, project_id, payload.target_id)
+    link_type = parse_enum(LinkType, payload.link_type, "link_type")
+    created = []
+    for sid in payload.source_ids:
+        get_artifact(db, project_id, sid)
+        row = add_link(db, project_id, sid, payload.target_id, link_type)
+        created.append(serialize_link(db, row))
+    db.commit()
+    return {"created": len(created), "links": created}
+
+
+@router.get("/projects/{project_id}/config-rules", response_model=list[ConfigRuleOut])
+def list_config_rules(project_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    return db.query(ConfigRule).filter(ConfigRule.project_id == project_id).order_by(ConfigRule.name).all()
+
+
+@router.post("/projects/{project_id}/config-rules", response_model=ConfigRuleOut)
+def create_config_rule(project_id: UUID, payload: ConfigRuleCreate, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    if payload.rule_type not in {"exclude", "require"}:
+        raise HTTPException(400, "rule_type must be exclude or require")
+    row = ConfigRule(
+        project_id=project_id,
+        name=payload.name.strip(),
+        rule_type=payload.rule_type,
+        when_expr=payload.when_expr,
+        then_expr=payload.then_expr,
+        description=payload.description,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/projects/{project_id}/config-rules/{rule_id}", status_code=204)
+def delete_config_rule(project_id: UUID, rule_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    row = db.get(ConfigRule, rule_id)
+    if not row or row.project_id != project_id:
+        raise HTTPException(404, "Rule not found")
+    db.delete(row)
+    db.commit()
+    return None
+
+
+@router.get("/projects/{project_id}/config-validate")
+def validate_configuration(project_id: UUID, config_id: UUID, db: Session = Depends(get_db)):
+    """Check named SKU against config rules (exclude/require)."""
+    selection, cfg = _ctx(db, project_id, config_id)
+    if not cfg or selection is None:
+        raise HTTPException(404, "Configuration not found")
+    rules = db.query(ConfigRule).filter(ConfigRule.project_id == project_id).all()
+    violations = []
+    for rule in rules:
+        when = rule.when_expr or {}
+        then = rule.then_expr or {}
+        when_hit = all(selection.get(k) in (v if isinstance(v, list) else [v]) for k, v in when.items())
+        if not when_hit:
+            continue
+        if rule.rule_type == "exclude":
+            for k, v in then.items():
+                allowed = v if isinstance(v, list) else [v]
+                if selection.get(k) in allowed:
+                    violations.append(
+                        {
+                            "rule": rule.name,
+                            "rule_type": rule.rule_type,
+                            "detail": f"{cfg.name} selects {k}={selection.get(k)} which is excluded when {when}",
+                        }
+                    )
+        elif rule.rule_type == "require":
+            for k, v in then.items():
+                allowed = v if isinstance(v, list) else [v]
+                if selection.get(k) not in allowed:
+                    violations.append(
+                        {
+                            "rule": rule.name,
+                            "rule_type": rule.rule_type,
+                            "detail": f"{cfg.name} must set {k} to one of {allowed}",
+                        }
+                    )
+    return {"config": ProductConfigurationOut.model_validate(cfg), "ok": not violations, "violations": violations}

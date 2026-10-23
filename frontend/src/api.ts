@@ -3,13 +3,16 @@ import type {
   BomItem,
   ConfigCompare,
   ConfigDictionary,
+  ConfigRule,
   Diagram,
   Finding,
+  ImpactPreview,
   LinkRow,
   ProductConfiguration,
   Project,
   Quality,
   Report,
+  SearchResult,
   TraceMatrix,
   Variant,
   VariantValue,
@@ -57,8 +60,22 @@ export const api = {
   deleteProject: (id: string) => http<void>(`/api/projects/${id}`, { method: "DELETE" }),
   quality: (id: string, configId?: string | null) =>
     http<Quality>(`/api/projects/${id}/quality${qs({ config_id: configId })}`),
-  artifacts: (id: string, viewpoint?: string, configId?: string | null) =>
-    http<Artifact[]>(`/api/projects/${id}/artifacts${qs({ viewpoint, config_id: configId })}`),
+  artifacts: (
+    id: string,
+    viewpoint?: string,
+    configId?: string | null,
+    extras?: { q?: string; kind?: string; limit?: number; offset?: number },
+  ) =>
+    http<Artifact[]>(
+      `/api/projects/${id}/artifacts${qs({
+        viewpoint,
+        config_id: configId,
+        q: extras?.q,
+        kind: extras?.kind,
+        limit: extras?.limit != null ? String(extras.limit) : undefined,
+        offset: extras?.offset != null ? String(extras.offset) : undefined,
+      })}`,
+    ),
   createArtifact: (id: string, body: unknown) => http<Artifact>(`/api/projects/${id}/artifacts`, json("POST", body)),
   updateArtifact: (id: string, aid: string, body: unknown) =>
     http<Artifact>(`/api/projects/${id}/artifacts/${aid}`, json("PATCH", body)),
@@ -104,6 +121,25 @@ export const api = {
     http<void>(`/api/projects/${id}/configurations/${cid}`, { method: "DELETE" }),
   compareConfigurations: (id: string, left: string, right: string) =>
     http<ConfigCompare>(`/api/projects/${id}/config-compare${qs({ left, right })}`),
+  search: (id: string, q: string, configId?: string | null) =>
+    http<SearchResult>(`/api/projects/${id}/search${qs({ q, config_id: configId })}`),
+  impact: (id: string, artifactId: string) => http<ImpactPreview>(`/api/projects/${id}/impact/${artifactId}`),
+  exportReportMd: async (id: string, configId?: string | null) => {
+    const res = await fetch(`/api/projects/${id}/report.md${qs({ config_id: configId })}`);
+    if (!res.ok) throw new Error(`Export failed (${res.status})`);
+    return res.text();
+  },
+  importRequirements: (id: string, rows: unknown[]) =>
+    http<{ created: number; artifacts: Artifact[] }>(`/api/projects/${id}/import/requirements`, json("POST", { rows })),
+  bulkStatus: (id: string, body: unknown) => http<{ updated: number }>(`/api/projects/${id}/bulk/status`, json("POST", body)),
+  bulkLinks: (id: string, body: unknown) =>
+    http<{ created: number; links: LinkRow[] }>(`/api/projects/${id}/bulk/links`, json("POST", body)),
+  createConfigRule: (id: string, body: unknown) => http<ConfigRule>(`/api/projects/${id}/config-rules`, json("POST", body)),
+  deleteConfigRule: (id: string, ruleId: string) => http<void>(`/api/projects/${id}/config-rules/${ruleId}`, { method: "DELETE" }),
+  validateConfig: (id: string, configId: string) =>
+    http<{ ok: boolean; violations: { rule: string; detail: string }[] }>(
+      `/api/projects/${id}/config-validate${qs({ config_id: configId })}`,
+    ),
   wizardProject: (body: unknown) => http<Project>("/api/wizards/project", json("POST", body)),
   wizardRequirement: (id: string, body: unknown) =>
     http<{ created: Artifact[] }>(`/api/projects/${id}/wizards/requirement`, json("POST", body)),

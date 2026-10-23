@@ -12,6 +12,7 @@ from app.models import (
     Domain,
     LifecycleStatus,
     LinkType,
+    ConfigRule,
     ProductConfiguration,
     Project,
     TraceLink,
@@ -773,6 +774,18 @@ def seed_vacuum_configuration(db: Session, project: Project) -> None:
     ensure_bom("DOCK-AUTOEMPTY", "Auto-empty dock", 1, "mechanical", "Internal", {"sku": ["pro"]}, None)
     ensure_bom("PSU-230-EU", "Dock PSU 230 V", 1, "electrical", "Mean Well", {"region": ["eu"]}, psu_eu)
     ensure_bom("PSU-120-US", "Dock PSU 120 V", 1, "electrical", "Mean Well", {"region": ["us"]}, psu_us)
+
+    if not db.query(ConfigRule).filter(ConfigRule.project_id == project.id).count():
+        db.add(
+            ConfigRule(
+                project_id=project.id,
+                name="Home excludes LiDAR",
+                rule_type="exclude",
+                when_expr={"sku": ["home"]},
+                then_expr={"nav": ["lidar"]},
+                description="Entry SKU cannot select the LiDAR navigation option.",
+            )
+        )
     db.flush()
 
 
@@ -781,6 +794,17 @@ def ensure_vacuum_configuration(db: Session) -> None:
     if not project:
         return
     seed_vacuum_configuration(db, project)
+    if not db.query(ConfigRule).filter(ConfigRule.project_id == project.id).count():
+        db.add(
+            ConfigRule(
+                project_id=project.id,
+                name="Home excludes LiDAR",
+                rule_type="exclude",
+                when_expr={"sku": ["home"]},
+                then_expr={"nav": ["lidar"]},
+                description="Entry SKU cannot select the LiDAR navigation option.",
+            )
+        )
     rebuild_findings(db, project.id)
     db.commit()
 

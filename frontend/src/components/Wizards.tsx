@@ -4,6 +4,8 @@ import { api } from "../api";
 import type { Artifact } from "../types";
 import { Btn, DOMAINS, Field, LINK_TYPES, Modal, STATUSES, V_NODES } from "./ui";
 import { useProjectConfig } from "../ConfigContext";
+import { MultiSearchableSelect, SearchableSelect } from "./SearchableSelect";
+import { ImpactPanel } from "./ImpactPanel";
 
 function useRefresh() {
   const qc = useQueryClient();
@@ -151,24 +153,15 @@ export function RequirementWizard({ projectId, onClose, parentId, refinesFrom, v
           <input value={form.owner} onChange={(e) => set("owner", e.target.value)} />
         </Field>
         <Field label="Parent (optional)">
-          <select value={form.parent_id} onChange={(e) => set("parent_id", e.target.value)}>
-            <option value="">— none —</option>
-            {features.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect options={features} value={form.parent_id} onChange={(v) => set("parent_id", v)} emptyLabel="— none —" />
         </Field>
         <Field label="Refines / derives from">
-          <select value={form.refines_from_id} onChange={(e) => set("refines_from_id", e.target.value)}>
-            <option value="">— none yet —</option>
-            {features.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={features}
+            value={form.refines_from_id}
+            onChange={(v) => set("refines_from_id", v)}
+            emptyLabel="— none yet —"
+          />
         </Field>
         <Field label="Description / acceptance intent">
           <textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} />
@@ -215,19 +208,13 @@ export function FunctionWizard({ projectId, onClose }: { projectId: string; onCl
         <Field label="Owner">
           <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} />
         </Field>
-        <Field label="Allocate from requirements (Ctrl/Cmd+click for many)">
-          <select
-            multiple
-            size={6}
+        <Field label="Allocate from requirements">
+          <MultiSearchableSelect
+            options={reqs}
             value={form.allocate_from_ids}
-            onChange={(e) => setForm({ ...form, allocate_from_ids: [...e.target.selectedOptions].map((o) => o.value) })}
-          >
-            {reqs.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+            onChange={(ids) => setForm({ ...form, allocate_from_ids: ids })}
+            placeholder="Type to find requirements…"
+          />
         </Field>
         <Field label="Swimlanes (comma separated)">
           <input value={form.lanes} onChange={(e) => setForm({ ...form, lanes: e.target.value })} />
@@ -276,18 +263,12 @@ export function LogicalWizard({ projectId, onClose }: { projectId: string; onClo
           <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} />
         </Field>
         <Field label="Allocated from functions">
-          <select
-            multiple
-            size={6}
+          <MultiSearchableSelect
+            options={fns}
             value={form.allocate_from_ids}
-            onChange={(e) => setForm({ ...form, allocate_from_ids: [...e.target.selectedOptions].map((o) => o.value) })}
-          >
-            {fns.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+            onChange={(ids) => setForm({ ...form, allocate_from_ids: ids })}
+            placeholder="Type to find functions…"
+          />
         </Field>
         <Field label="Description">
           <textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -356,18 +337,12 @@ export function PhysicalWizard({ projectId, onClose }: { projectId: string; onCl
           </select>
         </Field>
         <Field label="Implements logical blocks">
-          <select
-            multiple
-            size={6}
+          <MultiSearchableSelect
+            options={logical}
             value={form.implement_from_ids}
-            onChange={(e) => setForm({ ...form, implement_from_ids: [...e.target.selectedOptions].map((o) => o.value) })}
-          >
-            {logical.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+            onChange={(ids) => setForm({ ...form, implement_from_ids: ids })}
+            placeholder="Type to find logical blocks…"
+          />
         </Field>
         <Field label="Owner">
           <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} />
@@ -385,10 +360,12 @@ export function VerificationWizard({
   projectId,
   onClose,
   vNodeKey,
+  verifiesId,
 }: {
   projectId: string;
   onClose: () => void;
   vNodeKey?: string;
+  verifiesId?: string;
 }) {
   const refresh = useRefresh();
   const arts = useQuery({ queryKey: ["arts", projectId], queryFn: () => api.artifacts(projectId) });
@@ -400,7 +377,7 @@ export function VerificationWizard({
     owner: "",
     kind: "test_case",
     v_node_key: vNodeKey || "system_verification",
-    verifies_id: "",
+    verifies_id: verifiesId || "",
     validates_id: "",
     verdict: "draft",
     subjects: "",
@@ -438,24 +415,21 @@ export function VerificationWizard({
           </select>
         </Field>
         <Field label="Verifies (requirement / design)">
-          <select value={form.verifies_id} onChange={(e) => setForm({ ...form, verifies_id: e.target.value })}>
-            <option value="">— choose —</option>
-            {targets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={targets}
+            value={form.verifies_id}
+            onChange={(v) => setForm({ ...form, verifies_id: v })}
+            emptyLabel="— choose —"
+            allowEmpty
+          />
         </Field>
         <Field label="Validates (customer feature / need)">
-          <select value={form.validates_id} onChange={(e) => setForm({ ...form, validates_id: e.target.value })}>
-            <option value="">— optional —</option>
-            {targets.filter((a) => a.kind === "customer_feature" || a.kind === "stakeholder_need").map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={targets.filter((a) => a.kind === "customer_feature" || a.kind === "stakeholder_need")}
+            value={form.validates_id}
+            onChange={(v) => setForm({ ...form, validates_id: v })}
+            emptyLabel="— optional —"
+          />
         </Field>
         <Field label="Verdict">
           <select value={form.verdict} onChange={(e) => setForm({ ...form, verdict: e.target.value })}>
@@ -560,17 +534,14 @@ export function ArtifactEditor({
           </select>
         </Field>
         <Field label="Parent">
-          <select value={form.parent_id || ""} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}>
-            <option value="">— none —</option>
-            {(arts.data || [])
-              .filter((a) => a.id !== artifact.id)
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {optionLabel(a)}
-                </option>
-              ))}
-          </select>
+          <SearchableSelect
+            options={(arts.data || []).filter((a) => a.id !== artifact.id)}
+            value={form.parent_id || ""}
+            onChange={(v) => setForm({ ...form, parent_id: v })}
+            emptyLabel="— none —"
+          />
         </Field>
+        <ImpactPanel projectId={projectId} artifactId={artifact.id} />
         <Field label="Description">
           <textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
@@ -630,14 +601,13 @@ export function LinkWizard({ projectId, onClose }: { projectId: string; onClose:
     <Modal title="Add traceability link" onClose={onClose} onSubmit={() => mut.mutate()} busy={mut.isPending} submitLabel="Link">
       <div className="form-grid">
         <Field label="From">
-          <select required value={form.source_id} onChange={(e) => setForm({ ...form, source_id: e.target.value })}>
-            <option value="">—</option>
-            {(arts.data || []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={arts.data || []}
+            value={form.source_id}
+            onChange={(v) => setForm({ ...form, source_id: v })}
+            emptyLabel="— choose —"
+            allowEmpty={false}
+          />
         </Field>
         <Field label="Type">
           <select value={form.link_type} onChange={(e) => setForm({ ...form, link_type: e.target.value })}>
@@ -647,14 +617,13 @@ export function LinkWizard({ projectId, onClose }: { projectId: string; onClose:
           </select>
         </Field>
         <Field label="To">
-          <select required value={form.target_id} onChange={(e) => setForm({ ...form, target_id: e.target.value })}>
-            <option value="">—</option>
-            {(arts.data || []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {optionLabel(a)}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={arts.data || []}
+            value={form.target_id}
+            onChange={(v) => setForm({ ...form, target_id: v })}
+            emptyLabel="— choose —"
+            allowEmpty={false}
+          />
         </Field>
         {mut.error && <p className="error">{(mut.error as Error).message}</p>}
       </div>

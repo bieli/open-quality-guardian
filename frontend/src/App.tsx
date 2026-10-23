@@ -2,6 +2,7 @@ import { NavLink, Outlet, useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { QualityRing } from "./components/Bits";
+import { GlobalSearch } from "./components/GlobalSearch";
 import { ConfigProvider, useProjectConfig } from "./ConfigContext";
 
 const links = [
@@ -79,6 +80,7 @@ function ProjectShellInner() {
             <div className="eyebrow">Configuration context</div>
             <strong>{mode === "150" ? "150% product definition" : activeConfig?.name || "Select a SKU"}</strong>
           </div>
+          {id && <GlobalSearch projectId={id} />}
           <div className="btn-row">
             <div className="seg">
               <button type="button" className={mode === "150" ? "on" : ""} onClick={() => setMode("150")}>

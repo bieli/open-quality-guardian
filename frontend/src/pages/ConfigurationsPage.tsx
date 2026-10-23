@@ -5,7 +5,7 @@ import { api } from "../api";
 import { formatEffectivity, useProjectConfig } from "../ConfigContext";
 import { QualityRing } from "../components/Bits";
 import { Btn, Field } from "../components/ui";
-import type { Artifact, BomItem, ConfigCompare, ProductConfiguration, Variant } from "../types";
+import type { Artifact, BomItem, ConfigCompare, ConfigRule, ProductConfiguration, Variant } from "../types";
 
 export function ConfigurationsPage() {
   const { id } = useParams();
@@ -16,6 +16,7 @@ export function ConfigurationsPage() {
   const bom = useQuery({ queryKey: ["bom", id, "150"], queryFn: () => api.bom(id!), enabled: !!id });
   const variants = dict.data?.variants || [];
   const configs = dict.data?.configurations || [];
+  const rules = dict.data?.rules || [];
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
   const compare = useQuery({
@@ -57,6 +58,11 @@ export function ConfigurationsPage() {
         <NamedConfigsCard projectId={id!} variants={variants} configs={configs} onChange={refresh} />
       </div>
 
+      <div className="two">
+        <RulesCard projectId={id!} rules={rules} variants={variants} configs={configs} onChange={refresh} />
+        <ImportRequirementsCard projectId={id!} onChange={refresh} />
+      </div>
+
       <EffectivityTable projectId={id!} variants={variants} artifacts={arts.data || []} bom={bom.data || []} onChange={refresh} />
 
       <div className="card">
@@ -79,6 +85,194 @@ export function ConfigurationsPage() {
           </select>
         </div>
         {compare.data && <CompareView data={compare.data} />}
+      </div>
+    </div>
+  );
+}
+
+function RulesCard({
+  projectId,
+  rules,
+  variants,
+  configs,
+  onChange,
+}: {
+  projectId: string;
+  rules: ConfigRule[];
+  variants: Variant[];
+  configs: ProductConfiguration[];
+  onChange: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: "",
+    rule_type: "exclude",
+    when_dim: variants[0]?.key || "sku",
+    when_val: variants[0]?.values[0]?.key || "",
+    then_dim: variants[1]?.key || variants[0]?.key || "nav",
+    then_val: variants[1]?.values[0]?.key || "",
+  });
+  const add = useMutation({
+    mutationFn: () =>
+      api.createConfigRule(projectId, {
+        name: form.name,
+        rule_type: form.rule_type,
+        when_expr: { [form.when_dim]: [form.when_val] },
+        then_expr: { [form.then_dim]: [form.then_val] },
+        description: `${form.rule_type} ${form.then_dim}=${form.then_val} when ${form.when_dim}=${form.when_val}`,
+      }),
+    onSuccess: onChange,
+  });
+  const remove = useMutation({
+    mutationFn: (rid: string) => api.deleteConfigRule(projectId, rid),
+    onSuccess: onChange,
+  });
+  const [checkId, setCheckId] = useState(configs[0]?.id || "");
+  const validate = useQuery({
+    queryKey: ["validate", projectId, checkId],
+    queryFn: () => api.validateConfig(projectId, checkId),
+    enabled: !!checkId,
+  });
+  useEffect(() => {
+    if (!checkId && configs[0]) setCheckId(configs[0].id);
+  }, [configs, checkId]);
+
+  return (
+    <div className="card">
+      <div className="eyebrow">Configuration rules</div>
+      <h2 className="serif" style={{ marginTop: 8, fontSize: 24 }}>
+        Include / exclude
+      </h2>
+      {rules.map((r) => (
+        <div key={r.id} className="tree-item" style={{ cursor: "default" }}>
+          <strong>{r.name}</strong>
+          <div className="small muted">
+            {r.rule_type} · when {JSON.stringify(r.when_expr)} → {JSON.stringify(r.then_expr)}
+          </div>
+          <Btn kind="ghost" onClick={() => remove.mutate(r.id)}>
+            Remove
+          </Btn>
+        </div>
+      ))}
+      {!rules.length && <p className="small muted">No rules yet. Example: Home excludes LiDAR.</p>}
+      <form
+        className="form-grid"
+        style={{ marginTop: 12 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          add.mutate();
+        }}
+      >
+        <Field label="Rule name">
+          <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Home excludes LiDAR" />
+        </Field>
+        <Field label="Type">
+          <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })}>
+            <option value="exclude">exclude</option>
+            <option value="require">require</option>
+          </select>
+        </Field>
+        <Field label="When dimension / value">
+          <div className="btn-row">
+            <select value={form.when_dim} onChange={(e) => setForm({ ...form, when_dim: e.target.value })}>
+              {variants.map((v) => (
+                <option key={v.id} value={v.key}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+            <select value={form.when_val} onChange={(e) => setForm({ ...form, when_val: e.target.value })}>
+              {(variants.find((v) => v.key === form.when_dim)?.values || []).map((val) => (
+                <option key={val.id} value={val.key}>
+                  {val.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Field>
+        <Field label="Then dimension / value">
+          <div className="btn-row">
+            <select value={form.then_dim} onChange={(e) => setForm({ ...form, then_dim: e.target.value })}>
+              {variants.map((v) => (
+                <option key={v.id} value={v.key}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+            <select value={form.then_val} onChange={(e) => setForm({ ...form, then_val: e.target.value })}>
+              {(variants.find((v) => v.key === form.then_dim)?.values || []).map((val) => (
+                <option key={val.id} value={val.key}>
+                  {val.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Field>
+        <Btn type="submit" disabled={add.isPending}>
+          Add rule
+        </Btn>
+      </form>
+      <div style={{ marginTop: 16 }}>
+        <div className="eyebrow">Validate SKU</div>
+        <select value={checkId} onChange={(e) => setCheckId(e.target.value)} style={{ marginTop: 8 }}>
+          {configs.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        {validate.data && (
+          <p className={`small ${validate.data.ok ? "muted" : "error"}`} style={{ marginTop: 8 }}>
+            {validate.data.ok
+              ? "No rule violations."
+              : validate.data.violations.map((v) => v.detail).join(" · ")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ImportRequirementsCard({ projectId, onChange }: { projectId: string; onChange: () => void }) {
+  const [text, setText] = useState("identifier,title,description,owner\nREQ-100,New endurance,90 min runtime,Power\n");
+  const mut = useMutation({
+    mutationFn: () => {
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (lines.length < 2) throw new Error("Need a header row and at least one data row");
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+      const idx = (name: string) => headers.indexOf(name);
+      const rows = lines.slice(1).map((line) => {
+        const cols = line.split(",").map((c) => c.trim());
+        return {
+          identifier: cols[idx("identifier")] || cols[0],
+          title: cols[idx("title")] || cols[1] || "",
+          description: cols[idx("description")] || "",
+          owner: cols[idx("owner")] || "",
+          kind: cols[idx("kind")] || "requirement",
+          domain: cols[idx("domain")] || "system",
+          v_node_key: cols[idx("v_node_key")] || "system_req",
+        };
+      });
+      return api.importRequirements(projectId, rows);
+    },
+    onSuccess: onChange,
+  });
+  return (
+    <div className="card">
+      <div className="eyebrow">Import</div>
+      <h2 className="serif" style={{ marginTop: 8, fontSize: 24 }}>
+        CSV requirements
+      </h2>
+      <p className="small muted">Paste CSV with columns identifier, title, description, owner (optional kind, domain).</p>
+      <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} className="mono" style={{ fontSize: 12 }} />
+      <div className="btn-row" style={{ marginTop: 10 }}>
+        <Btn onClick={() => mut.mutate()} disabled={mut.isPending}>
+          {mut.isPending ? "Importing…" : "Import requirements"}
+        </Btn>
+        {mut.isSuccess && <span className="small muted">Imported {mut.data.created} rows</span>}
+        {mut.error && <span className="error small">{(mut.error as Error).message}</span>}
       </div>
     </div>
   );

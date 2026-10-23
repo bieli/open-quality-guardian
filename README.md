@@ -39,6 +39,9 @@ Close the V: a test, a station, a verdict, linked back to what it proves.
 - **Artifact studio** — BOM, KiCad schematic/PCB metadata, CAD facts, 3D visualization, product specification.
 - **Quality cockpit & reports** — score, gaps, failed tests, owners, V-station health.
 - **Configuration dictionary** — variants and named SKUs filter requirements, BOM and tests together (150% vs 100%), with quality scored per configuration.
+- **Searchable pickers & global search** — typeahead on wizards; Ctrl/⌘K project search.
+- **Quality report** — narrative, next actions (“close this gap”), Markdown export; works in 100% SKU mode.
+- **Scale helpers** — facet filters, pagination, bulk link/status, CSV requirement import, config rules, impact preview.
 
 ## How it's looks like - you think oldschool, I think sky is a limit :-)
 
