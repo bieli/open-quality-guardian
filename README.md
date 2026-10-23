@@ -1,10 +1,31 @@
 # Open Quality Guardian
 
-A quality-planning platform for **complex products**: requirements, functions, logical and physical design, CAD, BOMs, KiCad, tests and reports on one digital thread.
+A quality-planning platform for **complex products**: requirements, functions, logical and physical design, installations plans, deploments plans, CADs specification, BOMs, KiCad schemas or PCBs, tests pyramid and reports on one digital thread.
 
-The reference product in the seed data is an autonomous vacuum (AuroraVac) — the same class of system as a Roomba. The data model is generic: any cyber-physical product can sit on the same multi-V / RFLP spine.
+Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product owners and program managers as much as systems engineers. 
+Details stay visible; quality is the product.
 
-Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product owners and program managers as much as systems engineers. Details stay visible; quality is the product.
+## Compose the product, then prove it (R-F-L-P-V kind of methodology!)
+
+Inside this project, you can use wizard for add all records on top of V-model. 
+Yes, I know that "V-model" is oldschool and i.e. "Scrum" / "Agile" is "better", of course ;-)
+
+Here you can see, what kind of concepts are necessery to define most of complex products (please remember product, not only independent project/s or dashboard/s with availiable tickets to grab by team!):
+
+### R - Requirements
+Capture customer features and system / software / hardware requirements, then hang them on the left of the V.
+
+### F - Functional
+Describe product behaviour as functions and swimlane diagrams a program manager can read.
+
+### L - Logical
+Allocate functions to sense, compute and actuate — still independent of a specific chip or class.
+
+### P - Physical
+Name the software and hardware that will actually be built, including CAD and electronics later.
+
+### V - Verification
+Close the V: a test, a station, a verdict, linked back to what it proves.
 
 ## What you get
 
@@ -16,7 +37,7 @@ Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product o
 - **Quality cockpit & reports** — score, gaps, failed tests, owners, V-station health.
 - **Configuration dictionary** — variants and named SKUs filter requirements, BOM and tests together (150% vs 100%), with quality scored per configuration.
 
-## Developer mode (Linux)
+## Developer mode & how to run on Linux OS?
 
 ```bash
 docker compose up --build
