@@ -6,11 +6,13 @@ import { FunctionWizard } from "../components/Wizards";
 import { Btn } from "../components/ui";
 import type { Diagram } from "../types";
 import { WorkflowStudio } from "../workflow/WorkflowStudio";
+import { useProjectConfig } from "../ConfigContext";
 
 export function DiagramsPage() {
   const { id } = useParams();
+  const { activeConfigId } = useProjectConfig();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["diagrams", id], queryFn: () => api.diagrams(id!), enabled: !!id });
+  const q = useQuery({ queryKey: ["diagrams", id, activeConfigId], queryFn: () => api.diagrams(id!, activeConfigId), enabled: !!id });
   const [sel, setSel] = useState(0);
   const [wizard, setWizard] = useState(false);
   const diagram = q.data?.[sel];

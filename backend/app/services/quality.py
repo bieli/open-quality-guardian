@@ -19,6 +19,7 @@ from app.models import (
     VModelNode,
     Viewpoint,
 )
+from app.services.config import matched_artifact_ids, resolve_artifacts, resolve_bom
 
 
 VERIFICATION_STATUSES = {LifecycleStatus.VERIFIED}
@@ -35,14 +36,29 @@ def _pct(part: int, whole: int) -> float:
     return round((part / whole) * 100, 1) if whole else 0.0
 
 
-def compute_quality(db: Session, project_id: UUID) -> dict[str, Any]:
-    artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
-    findings = (
-        db.query(QualityFinding)
-        .filter(QualityFinding.project_id == project_id, QualityFinding.status == "open")
-        .all()
-    )
+def compute_quality(
+    db: Session,
+    project_id: UUID,
+    selection: dict[str, Any] | None = None,
+    config_id: UUID | None = None,
+    config_name: str = "",
+) -> dict[str, Any]:
+    all_arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    keep = matched_artifact_ids(all_arts, selection)
+    artifacts = [a for a in all_arts if a.id in keep]
+    links = [
+        link
+        for link in db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+        if link.source_id in keep and link.target_id in keep
+    ]
+    if selection is None:
+        findings = (
+            db.query(QualityFinding)
+            .filter(QualityFinding.project_id == project_id, QualityFinding.status == "open")
+            .all()
+        )
+    else:
+        findings = collect_findings(db, project_id, artifacts, persist=False)
 
     by_id = {a.id: a for a in artifacts}
     outgoing: dict[UUID, list[TraceLink]] = defaultdict(list)
@@ -118,17 +134,27 @@ def compute_quality(db: Session, project_id: UUID) -> dict[str, Any]:
         "critical": critical,
         "by_viewpoint": by_viewpoint,
         "by_domain": by_domain,
+        "config_id": str(config_id) if config_id else None,
+        "config_name": config_name,
+        "mode": "100" if selection is not None else "150",
     }
 
 
-def v_model_enriched(db: Session, project_id: UUID) -> list[dict[str, Any]]:
+def v_model_enriched(
+    db: Session, project_id: UUID, selection: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     nodes = db.query(VModelNode).filter(VModelNode.project_id == project_id).order_by(VModelNode.row).all()
-    artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-    findings = (
-        db.query(QualityFinding)
-        .filter(QualityFinding.project_id == project_id, QualityFinding.status == "open")
-        .all()
-    )
+    all_arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    keep = matched_artifact_ids(all_arts, selection)
+    artifacts = [a for a in all_arts if a.id in keep]
+    if selection is None:
+        findings = (
+            db.query(QualityFinding)
+            .filter(QualityFinding.project_id == project_id, QualityFinding.status == "open")
+            .all()
+        )
+    else:
+        findings = collect_findings(db, project_id, artifacts, persist=False)
     artifact_ids_by_node: dict[str, set[UUID]] = defaultdict(set)
     grouped: dict[str, list[Artifact]] = defaultdict(list)
     for art in artifacts:
@@ -177,9 +203,17 @@ def v_model_enriched(db: Session, project_id: UUID) -> list[dict[str, Any]]:
     return result
 
 
-def missing_links(db: Session, project_id: UUID) -> list[dict[str, Any]]:
-    artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+def missing_links(
+    db: Session, project_id: UUID, selection: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    all_arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    keep = matched_artifact_ids(all_arts, selection)
+    artifacts = [a for a in all_arts if a.id in keep]
+    links = [
+        link
+        for link in db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+        if link.source_id in keep and link.target_id in keep
+    ]
     linked = set()
     for link in links:
         linked.add(link.source_id)
@@ -220,69 +254,74 @@ def missing_links(db: Session, project_id: UUID) -> list[dict[str, Any]]:
     return rows
 
 
-def rebuild_findings(db: Session, project_id: UUID) -> None:
-    db.query(QualityFinding).filter(QualityFinding.project_id == project_id).delete()
-    artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
-    missing = missing_links(db, project_id)
-    by_id = {a.identifier: a for a in artifacts}
+def collect_findings(
+    db: Session,
+    project_id: UUID,
+    artifacts: list[Artifact],
+    *,
+    persist: bool,
+    selection: dict[str, Any] | None = None,
+) -> list[QualityFinding]:
+    keep = {a.id for a in artifacts}
+    missing = missing_links(db, project_id, selection)
+    rows: list[QualityFinding] = []
+
+    def emit(**kwargs: Any) -> None:
+        finding = QualityFinding(**kwargs)
+        rows.append(finding)
+        if persist:
+            db.add(finding)
 
     for row in missing:
         art = next((a for a in artifacts if str(a.id) == row["id"]), None)
         if not art:
             continue
-        db.add(
-            QualityFinding(
-                project_id=project_id,
-                artifact_id=art.id,
-                rule="traceability.coverage",
-                severity=FindingSeverity.GAP,
-                title=f"{art.identifier} is missing {', '.join(row['missing'])}",
-                detail="Every requirement and function in a complex product should be allocated and verified.",
-            )
+        emit(
+            project_id=project_id,
+            artifact_id=art.id,
+            rule="traceability.coverage",
+            severity=FindingSeverity.GAP,
+            title=f"{art.identifier} is missing {', '.join(row['missing'])}",
+            detail="Every requirement and function in a complex product should be allocated and verified.",
         )
 
     for art in artifacts:
         if art.kind in REQUIREMENT_KINDS and not art.owner:
-            db.add(
-                QualityFinding(
-                    project_id=project_id,
-                    artifact_id=art.id,
-                    rule="ownership",
-                    severity=FindingSeverity.WARNING,
-                    title=f"{art.identifier} has no owner",
-                    detail="Program managers cannot track accountability without a named owner.",
-                )
+            emit(
+                project_id=project_id,
+                artifact_id=art.id,
+                rule="ownership",
+                severity=FindingSeverity.WARNING,
+                title=f"{art.identifier} has no owner",
+                detail="Program managers cannot track accountability without a named owner.",
             )
         if art.status == LifecycleStatus.FAILED:
-            db.add(
-                QualityFinding(
-                    project_id=project_id,
-                    artifact_id=art.id,
-                    rule="verification.failed",
-                    severity=FindingSeverity.CRITICAL,
-                    title=f"{art.identifier} verification failed",
-                    detail=art.description or "A verification activity returned a fail verdict.",
-                )
+            emit(
+                project_id=project_id,
+                artifact_id=art.id,
+                rule="verification.failed",
+                severity=FindingSeverity.CRITICAL,
+                title=f"{art.identifier} verification failed",
+                detail=art.description or "A verification activity returned a fail verdict.",
             )
 
     sch_parts = set()
     bom_refs = set()
     for art in artifacts:
         if art.kind == ArtifactKind.KICAD_SCH:
-            for comp in art.extra.get("components", []):
+            for comp in (art.extra or {}).get("components", []):
                 sch_parts.add(comp.get("value") or comp.get("reference"))
-    for item in db.query(BomItem).filter(BomItem.project_id == project_id).all():
+    bom_items = resolve_bom(db.query(BomItem).filter(BomItem.project_id == project_id).all(), selection)
+    for item in bom_items:
         bom_refs.add(item.part_number)
         bom_refs.add(item.name)
 
-    # Cross-check is also done via BOM table in API; keep a representative finding if schematic has unmatched parts.
     if sch_parts and bom_refs:
         unmatched = [p for p in sch_parts if p and p not in bom_refs]
         if unmatched:
-            sch = next(a for a in artifacts if a.kind == ArtifactKind.KICAD_SCH)
-            db.add(
-                QualityFinding(
+            sch = next((a for a in artifacts if a.kind == ArtifactKind.KICAD_SCH), None)
+            if sch:
+                emit(
                     project_id=project_id,
                     artifact_id=sch.id,
                     rule="bom.schematic",
@@ -290,7 +329,30 @@ def rebuild_findings(db: Session, project_id: UUID) -> None:
                     title="Schematic components not found on the BOM",
                     detail="Unmatched: " + ", ".join(unmatched[:8]),
                 )
-            )
 
-    db.flush()
-    _ = (links, by_id)
+    if persist:
+        db.flush()
+    _ = keep
+    return rows
+
+
+def rebuild_findings(db: Session, project_id: UUID) -> None:
+    db.query(QualityFinding).filter(QualityFinding.project_id == project_id).delete()
+    artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    collect_findings(db, project_id, artifacts, persist=True, selection=None)
+
+
+def findings_for_view(
+    db: Session, project_id: UUID, selection: dict[str, Any] | None = None
+) -> list[QualityFinding]:
+    all_arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    artifacts = resolve_artifacts(all_arts, selection, keep_ancestors=False)
+    if selection is None:
+        rebuild_findings(db, project_id)
+        return (
+            db.query(QualityFinding)
+            .filter(QualityFinding.project_id == project_id)
+            .order_by(QualityFinding.severity.desc())
+            .all()
+        )
+    return collect_findings(db, project_id, artifacts, persist=False, selection=selection)

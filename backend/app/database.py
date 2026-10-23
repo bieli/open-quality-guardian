@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import get_settings
@@ -18,3 +18,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_schema() -> None:
+    """Add columns that create_all will not attach to existing tables."""
+    statements = [
+        "ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS effectivity JSON DEFAULT '{}'::json",
+        "ALTER TABLE bom_items ADD COLUMN IF NOT EXISTS effectivity JSON DEFAULT '{}'::json",
+    ]
+    try:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+    except Exception:
+        # Fresh sqlite/tests or tables not yet created; create_all already defines the columns.
+        pass

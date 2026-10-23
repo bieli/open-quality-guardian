@@ -4,12 +4,14 @@ import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recha
 import { api } from "../api";
 import { QualityRing, StatusChip } from "../components/Bits";
 import { Btn } from "../components/ui";
+import { useProjectConfig } from "../ConfigContext";
 
 export function Overview() {
   const { id } = useParams();
-  const quality = useQuery({ queryKey: ["quality", id], queryFn: () => api.quality(id!), enabled: !!id });
-  const findings = useQuery({ queryKey: ["findings", id], queryFn: () => api.findings(id!), enabled: !!id });
-  const vmodel = useQuery({ queryKey: ["vmodel", id], queryFn: () => api.vmodel(id!), enabled: !!id });
+  const { activeConfigId, mode, activeConfig } = useProjectConfig();
+  const quality = useQuery({ queryKey: ["quality", id, activeConfigId], queryFn: () => api.quality(id!, activeConfigId), enabled: !!id });
+  const findings = useQuery({ queryKey: ["findings", id, activeConfigId], queryFn: () => api.findings(id!, activeConfigId), enabled: !!id });
+  const vmodel = useQuery({ queryKey: ["vmodel", id, activeConfigId], queryFn: () => api.vmodel(id!, activeConfigId), enabled: !!id });
   const q = quality.data;
   const chart = Object.entries(q?.by_viewpoint || {}).map(([k, v]) => ({ name: k, progress: v.progress, verified: v.verified }));
 
@@ -19,6 +21,11 @@ export function Overview() {
         <div>
           <div className="eyebrow">Quality cockpit</div>
           <h1>How healthy is this build?</h1>
+          <p className="muted small">
+            {mode === "100"
+              ? `Scored for ${activeConfig?.name || "the selected SKU"}. Switch to 150% to see every variant at once.`
+              : "150% view: every variant, option and common object."}
+          </p>
         </div>
         <div className="btn-row">
           <Link to={`/projects/${id}/compose`}>

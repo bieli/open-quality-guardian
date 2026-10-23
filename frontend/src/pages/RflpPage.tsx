@@ -6,6 +6,7 @@ import { StatusChip } from "../components/Bits";
 import type { Artifact } from "../types";
 import { ArtifactEditor, FunctionWizard, LogicalWizard, PhysicalWizard, RequirementWizard } from "../components/Wizards";
 import { Btn } from "../components/ui";
+import { formatEffectivity, useProjectConfig } from "../ConfigContext";
 
 const VIEWS = [
   ["R", "Requirements"],
@@ -35,6 +36,7 @@ function Tree({
           <strong>{row.title}</strong>
           <div className="small muted" style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center" }}>
             <StatusChip status={row.status} /> {row.owner || "unassigned"} · {row.progress}%
+            {row.effectivity && Object.keys(row.effectivity).length ? ` · ${formatEffectivity(row.effectivity)}` : ""}
           </div>
           <div onClick={(e) => e.stopPropagation()}>
             <Tree items={items} parent={row.id} onEdit={onEdit} />
@@ -47,10 +49,11 @@ function Tree({
 
 export function RflpPage() {
   const { id } = useParams();
+  const { activeConfigId } = useProjectConfig();
   const [vp, setVp] = useState<"R" | "F" | "L" | "P">("F");
   const [wizard, setWizard] = useState(false);
   const [edit, setEdit] = useState<Artifact | null>(null);
-  const arts = useQuery({ queryKey: ["arts", id], queryFn: () => api.artifacts(id!), enabled: !!id });
+  const arts = useQuery({ queryKey: ["arts", id, activeConfigId], queryFn: () => api.artifacts(id!, undefined, activeConfigId), enabled: !!id });
   const group = useMemo(() => (arts.data || []).filter((a) => a.viewpoint === vp), [arts.data, vp]);
   const physicalSw = group.filter((a) => a.domain === "software");
   const physicalHw = group.filter((a) => a.domain === "hardware" || a.kind === "hw_component");

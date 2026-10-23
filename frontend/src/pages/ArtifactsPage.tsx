@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
@@ -7,25 +7,53 @@ import { VacuumScene } from "../components/VacuumScene";
 import { StatusChip } from "../components/Bits";
 import { ArtifactEditor } from "../components/Wizards";
 import { Btn, Field, Modal } from "../components/ui";
-import type { Artifact } from "../types";
+import { formatEffectivity, useProjectConfig } from "../ConfigContext";
+import type { Artifact, BomItem } from "../types";
+
+type Selection =
+  | { kind: "artifact"; item: Artifact }
+  | { kind: "bom"; item: BomItem }
+  | null;
 
 export function ArtifactsPage() {
   const { id } = useParams();
   const qc = useQueryClient();
-  const arts = useQuery({ queryKey: ["arts", id], queryFn: () => api.artifacts(id!), enabled: !!id });
-  const bom = useQuery({ queryKey: ["bom", id], queryFn: () => api.bom(id!), enabled: !!id });
+  const { activeConfigId } = useProjectConfig();
+  const arts = useQuery({
+    queryKey: ["arts", id, activeConfigId],
+    queryFn: () => api.artifacts(id!, undefined, activeConfigId),
+    enabled: !!id,
+  });
+  const bom = useQuery({
+    queryKey: ["bom", id, activeConfigId],
+    queryFn: () => api.bom(id!, activeConfigId),
+    enabled: !!id,
+  });
   const list = arts.data || [];
-  const sch = list.find((a) => a.kind === "kicad_sch");
-  const pcb = list.find((a) => a.kind === "kicad_pcb");
-  const cad = list.find((a) => a.kind === "cad");
-  const spec = list.find((a) => a.kind === "specification" && a.domain === "product");
+  const structure = useMemo(
+    () =>
+      list.filter((a) =>
+        ["hw_component", "sw_component", "cad", "kicad_sch", "kicad_pcb", "electrical", "model_3d", "specification", "bom"].includes(
+          a.kind,
+        ),
+      ),
+    [list],
+  );
   const [bomOpen, setBomOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [edit, setEdit] = useState<Artifact | null>(null);
+  const [sel, setSel] = useState<Selection>(null);
   const delBom = useMutation({
     mutationFn: (bid: string) => api.deleteBom(id!, bid),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["bom", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bom", id] });
+      setSel(null);
+    },
   });
+
+  const activeArtifact = sel?.kind === "artifact" ? sel.item : null;
+  const fallback = structure.find((a) => a.kind === "model_3d") || structure[0] || null;
+  const shown = activeArtifact || (sel ? null : fallback);
 
   return (
     <div className="stack">
@@ -33,7 +61,10 @@ export function ArtifactsPage() {
         <div>
           <div className="eyebrow">The product as built</div>
           <h1>CAD, BOM, KiCad & specification</h1>
-          <p className="muted small">Quality is not only requirements coverage. Housing fits, schematic-to-BOM consistency and electrical design live on the same thread.</p>
+          <p className="muted small">
+            Structure on the left, inspector on the right — the same split 3DEXPERIENCE uses for a configured product.
+            The tree follows the active configuration.
+          </p>
         </div>
         <div className="btn-row">
           <Btn kind="ghost" onClick={() => setDesignOpen(true)}>
@@ -42,92 +73,185 @@ export function ArtifactsPage() {
           <Btn onClick={() => setBomOpen(true)}>Add BOM line</Btn>
         </div>
       </div>
-      <div className="two">
-        <div className="card">
-          <div className="eyebrow">3D product visualization</div>
-          <VacuumScene />
+      <div className="architect">
+        <div className="card architect-tree">
+          <div className="eyebrow">Configured structure</div>
+          <StructureTree items={structure} parent={null} onSelect={(item) => setSel({ kind: "artifact", item })} selectedId={shown?.id} />
+          <div className="eyebrow" style={{ marginTop: 18 }}>
+            Bill of materials
+          </div>
+          {(bom.data || []).map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              className={`tree-item ${sel?.kind === "bom" && sel.item.id === row.id ? "on" : ""}`}
+              onClick={() => setSel({ kind: "bom", item: row })}
+            >
+              <div className="id">{row.part_number}</div>
+              <strong>{row.name}</strong>
+              <div className="small muted">
+                {row.qty} {row.unit} · {formatEffectivity(row.effectivity)}
+              </div>
+            </button>
+          ))}
         </div>
-        <div className="card" onClick={() => spec && setEdit(spec)} style={{ cursor: spec ? "pointer" : "default" }}>
-          <div className="eyebrow">Specification</div>
-          <h2 className="serif" style={{ marginTop: 8 }}>{spec?.title || "Product spec"}</h2>
-          <p className="small muted">{spec?.description || "Add a specification to capture runtime, noise, coverage and safety limits."}</p>
-          <table>
-            <tbody>
-              {Object.entries((spec?.extra as Record<string, string | number>) || {}).map(([k, v]) => (
-                <tr key={k}>
-                  <td className="mono">{k}</td>
-                  <td>{String(v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {cad && (
-            <p className="small" style={{ marginTop: 12 }}>
-              CAD {cad.identifier}: {(cad.extra as { format?: string; mass_g?: number; diameter_mm?: number }).format} ·
-              mass {(cad.extra as { mass_g?: number }).mass_g} g · ⌀ {(cad.extra as { diameter_mm?: number }).diameter_mm} mm
-              <br />
-              <StatusChip status={cad.status} />
-            </p>
+        <div className="card architect-inspector">
+          {sel?.kind === "bom" ? (
+            <BomInspector row={sel.item} onRemove={() => delBom.mutate(sel.item.id)} />
+          ) : shown ? (
+            <ArtifactInspector artifact={shown} all={list} onEdit={setEdit} />
+          ) : (
+            <p className="muted small">Select a structure node or BOM line.</p>
           )}
         </div>
-      </div>
-      <div className="two">
-        <div className="card">
-          <div className="eyebrow">KiCad schematic</div>
-          <SchematicView artifact={sch} />
-        </div>
-        <div className="card">
-          <div className="eyebrow">KiCad PCB</div>
-          <p className="small muted">{pcb?.title || "No PCB captured yet."}</p>
-          <div className="schematic" style={{ minHeight: 220 }}>
-            <div>LAYERS {(pcb?.extra as { layers?: string[] })?.layers?.join(" · ")}</div>
-            <div>BOARD {(pcb?.extra as { size_mm?: number[] })?.size_mm?.join(" × ")} mm</div>
-            <div>DRC errors {(pcb?.extra as { drc_errors?: number })?.drc_errors ?? "–"}</div>
-            <svg viewBox="0 0 200 120" width="100%" height="140">
-              <rect x="10" y="20" width="180" height="80" fill="none" stroke="#c6f3b0" />
-              <circle cx="24" cy="34" r="4" fill="#c6f3b0" />
-              <circle cx="176" cy="34" r="4" fill="#c6f3b0" />
-              <circle cx="24" cy="86" r="4" fill="#c6f3b0" />
-              <circle cx="176" cy="86" r="4" fill="#c6f3b0" />
-              <rect x="70" y="42" width="60" height="36" fill="none" stroke="#e8c547" />
-            </svg>
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="eyebrow">Bill of materials</div>
-        <table>
-          <thead>
-            <tr>
-              <th>MPN</th>
-              <th>Name</th>
-              <th>Qty</th>
-              <th>Category</th>
-              <th>Supplier</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {(bom.data || []).map((row) => (
-              <tr key={row.id}>
-                <td className="mono">{row.part_number}</td>
-                <td>{row.name}</td>
-                <td>{row.qty} {row.unit}</td>
-                <td>{row.category}</td>
-                <td>{row.supplier}</td>
-                <td>
-                  <Btn kind="ghost" onClick={() => delBom.mutate(row.id)}>
-                    Remove
-                  </Btn>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
       {bomOpen && id && <BomModal projectId={id} onClose={() => setBomOpen(false)} />}
       {designOpen && id && <DesignModal projectId={id} onClose={() => setDesignOpen(false)} />}
       {edit && id && <ArtifactEditor projectId={id} artifact={edit} onClose={() => setEdit(null)} />}
+    </div>
+  );
+}
+
+function StructureTree({
+  items,
+  parent,
+  onSelect,
+  selectedId,
+}: {
+  items: Artifact[];
+  parent: string | null;
+  onSelect: (a: Artifact) => void;
+  selectedId?: string;
+}) {
+  const rows = items.filter((i) => i.parent_id === parent);
+  const roots = parent === null ? items.filter((i) => !items.some((p) => p.id === i.parent_id)) : rows;
+  const list = parent === null ? roots : rows;
+  if (!list.length && parent === null) {
+    return <div className="muted small">Nothing in this configuration yet.</div>;
+  }
+  return (
+    <>
+      {list.map((row) => (
+        <div key={row.id}>
+          <button type="button" className={`tree-item ${selectedId === row.id ? "on" : ""}`} onClick={() => onSelect(row)}>
+            <div className="id">{row.identifier}</div>
+            <strong>{row.title}</strong>
+            <div className="small muted" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+              <StatusChip status={row.status} /> {formatEffectivity(row.effectivity)}
+            </div>
+          </button>
+          <div style={{ marginLeft: 14 }}>
+            <StructureTree items={items} parent={row.id} onSelect={onSelect} selectedId={selectedId} />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function ArtifactInspector({
+  artifact,
+  all,
+  onEdit,
+}: {
+  artifact: Artifact;
+  all: Artifact[];
+  onEdit: (a: Artifact) => void;
+}) {
+  const sch = artifact.kind === "kicad_sch" ? artifact : all.find((a) => a.kind === "kicad_sch");
+  const pcb = artifact.kind === "kicad_pcb" ? artifact : all.find((a) => a.kind === "kicad_pcb");
+  const cad = artifact.kind === "cad" ? artifact : all.find((a) => a.kind === "cad");
+  const spec = artifact.kind === "specification" ? artifact : null;
+  const show3d = artifact.kind === "model_3d" || artifact.kind === "cad";
+  return (
+    <div className="stack">
+      <div className="topbar" style={{ marginBottom: 0 }}>
+        <div>
+          <div className="eyebrow">{artifact.kind.replaceAll("_", " ")}</div>
+          <h2 className="serif" style={{ margin: "6px 0" }}>
+            {artifact.title}
+          </h2>
+          <p className="small muted">{artifact.description || formatEffectivity(artifact.effectivity)}</p>
+        </div>
+        <Btn kind="ghost" onClick={() => onEdit(artifact)}>
+          Edit
+        </Btn>
+      </div>
+      {show3d && <VacuumScene />}
+      {spec && (
+        <table>
+          <tbody>
+            {Object.entries((spec.extra as Record<string, string | number>) || {}).map(([k, v]) => (
+              <tr key={k}>
+                <td className="mono">{k}</td>
+                <td>{String(v)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {cad && artifact.kind === "cad" && (
+        <p className="small">
+          CAD {cad.identifier}: {(cad.extra as { format?: string }).format} · mass {(cad.extra as { mass_g?: number }).mass_g} g · ⌀{" "}
+          {(cad.extra as { diameter_mm?: number }).diameter_mm} mm
+        </p>
+      )}
+      {artifact.kind === "kicad_sch" && sch && <SchematicView artifact={sch} />}
+      {artifact.kind === "kicad_pcb" && pcb && (
+        <div className="schematic" style={{ minHeight: 220 }}>
+          <div>LAYERS {(pcb.extra as { layers?: string[] })?.layers?.join(" · ")}</div>
+          <div>BOARD {(pcb.extra as { size_mm?: number[] })?.size_mm?.join(" × ")} mm</div>
+          <div>DRC errors {(pcb.extra as { drc_errors?: number })?.drc_errors ?? "–"}</div>
+        </div>
+      )}
+      {artifact.kind === "hw_component" || artifact.kind === "sw_component" ? (
+        <p className="small">
+          <StatusChip status={artifact.status} /> {artifact.owner || "unassigned"} · {artifact.progress}% ·{" "}
+          {formatEffectivity(artifact.effectivity)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BomInspector({ row, onRemove }: { row: BomItem; onRemove: () => void }) {
+  return (
+    <div>
+      <div className="eyebrow">BOM line</div>
+      <h2 className="serif" style={{ marginTop: 8 }}>
+        {row.name}
+      </h2>
+      <table>
+        <tbody>
+          <tr>
+            <td>MPN</td>
+            <td className="mono">{row.part_number}</td>
+          </tr>
+          <tr>
+            <td>Qty</td>
+            <td>
+              {row.qty} {row.unit}
+            </td>
+          </tr>
+          <tr>
+            <td>Category</td>
+            <td>{row.category}</td>
+          </tr>
+          <tr>
+            <td>Supplier</td>
+            <td>{row.supplier}</td>
+          </tr>
+          <tr>
+            <td>Effectivity</td>
+            <td>{formatEffectivity(row.effectivity)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style={{ marginTop: 12 }}>
+        <Btn kind="ghost" onClick={onRemove}>
+          Remove
+        </Btn>
+      </div>
     </div>
   );
 }
@@ -188,7 +312,14 @@ function DesignModal({ projectId, onClose }: { projectId: string; onClose: () =>
         viewpoint: "A",
         status: "draft",
         progress: 20,
-        extra: form.kind === "kicad_sch" ? { components: [], nets: [] } : form.kind === "kicad_pcb" ? { layers: ["F.Cu", "B.Cu"], size_mm: [100, 80], drc_errors: 0 } : form.kind === "cad" ? { format: "STEP" } : {},
+        extra:
+          form.kind === "kicad_sch"
+            ? { components: [], nets: [] }
+            : form.kind === "kicad_pcb"
+              ? { layers: ["F.Cu", "B.Cu"], size_mm: [100, 80], drc_errors: 0 }
+              : form.kind === "cad"
+                ? { format: "STEP" }
+                : {},
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["arts", projectId] });

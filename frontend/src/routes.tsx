@@ -9,6 +9,7 @@ import { DiagramsPage } from "./pages/DiagramsPage";
 import { TraceabilityPage } from "./pages/TraceabilityPage";
 import { ArtifactsPage } from "./pages/ArtifactsPage";
 import { TestsPage } from "./pages/TestsPage";
+import { ConfigurationsPage } from "./pages/ConfigurationsPage";
 import { ReportPage } from "./pages/ReportPage";
 
 export function RoutesApp() {
@@ -24,6 +25,7 @@ export function RoutesApp() {
         <Route path="traceability" element={<TraceabilityPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="tests" element={<TestsPage />} />
+        <Route path="configurations" element={<ConfigurationsPage />} />
         <Route path="report" element={<ReportPage />} />
       </Route>
     </Routes>

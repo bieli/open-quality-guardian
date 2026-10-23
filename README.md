@@ -14,6 +14,7 @@ Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product o
 - **Traceability** — coverage and “links missing” between needs, architecture and tests.
 - **Artifact studio** — BOM, KiCad schematic/PCB metadata, CAD facts, 3D visualization, product specification.
 - **Quality cockpit & reports** — score, gaps, failed tests, owners, V-station health.
+- **Configuration dictionary** — variants and named SKUs filter requirements, BOM and tests together (150% vs 100%), with quality scored per configuration.
 
 ## Developer mode (Linux)
 

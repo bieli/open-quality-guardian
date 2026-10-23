@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { Artifact } from "../types";
 import { Btn, DOMAINS, Field, LINK_TYPES, Modal, STATUSES, V_NODES } from "./ui";
+import { useProjectConfig } from "../ConfigContext";
 
 function useRefresh() {
   const qc = useQueryClient();
@@ -488,8 +489,10 @@ export function ArtifactEditor({
   onClose: () => void;
 }) {
   const refresh = useRefresh();
-  const arts = useQuery({ queryKey: ["arts", projectId], queryFn: () => api.artifacts(projectId) });
+  const arts = useQuery({ queryKey: ["arts", projectId, "150"], queryFn: () => api.artifacts(projectId) });
+  const { dictionary } = useProjectConfig();
   const [form, setForm] = useState({ ...artifact, parent_id: artifact.parent_id || "" });
+  const [eff, setEff] = useState<Record<string, string[]>>(artifact.effectivity || {});
   const save = useMutation({
     mutationFn: () =>
       api.updateArtifact(projectId, artifact.id, {
@@ -504,6 +507,7 @@ export function ArtifactEditor({
         v_node_key: form.v_node_key,
         progress: Number(form.progress),
         parent_id: form.parent_id || null,
+        effectivity: Object.fromEntries(Object.entries(eff).filter(([, v]) => v.length)),
       }),
     onSuccess: () => {
       refresh();
@@ -570,6 +574,36 @@ export function ArtifactEditor({
         <Field label="Description">
           <textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
+        {(dictionary?.variants || []).length > 0 && (
+          <div>
+            <div className="eyebrow">Effectivity</div>
+            <p className="small muted">Leave unchecked for common (always included).</p>
+            {(dictionary?.variants || []).map((v) => (
+              <div key={v.id} className="eff-checks" style={{ marginTop: 8 }}>
+                <strong className="small">{v.name}</strong>
+                {v.values.map((val) => {
+                  const selected = eff[v.key] || [];
+                  const on = selected.includes(val.key);
+                  return (
+                    <label key={val.id} className="field-check">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          setEff({
+                            ...eff,
+                            [v.key]: on ? selected.filter((k) => k !== val.key) : [...selected, val.key],
+                          })
+                        }
+                      />
+                      {val.name}
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
         {save.error && <p className="error">{(save.error as Error).message}</p>}
         <div>
           <Btn kind="danger" onClick={() => remove.mutate()}>

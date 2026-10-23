@@ -38,6 +38,7 @@ class ArtifactCreate(BaseModel):
     progress: int = 10
     parent_id: Optional[UUID] = None
     extra: dict[str, Any] = Field(default_factory=dict)
+    effectivity: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactUpdate(BaseModel):
@@ -53,6 +54,7 @@ class ArtifactUpdate(BaseModel):
     progress: Optional[int] = None
     parent_id: Optional[UUID] = None
     extra: Optional[dict[str, Any]] = None
+    effectivity: Optional[dict[str, Any]] = None
 
 
 class TraceLinkCreate(BaseModel):
@@ -70,6 +72,7 @@ class BomItemCreate(BaseModel):
     supplier: str = ""
     linked_artifact_id: Optional[UUID] = None
     extra: dict[str, Any] = Field(default_factory=dict)
+    effectivity: dict[str, Any] = Field(default_factory=dict)
 
 
 class BomItemUpdate(BaseModel):
@@ -81,6 +84,7 @@ class BomItemUpdate(BaseModel):
     supplier: Optional[str] = None
     linked_artifact_id: Optional[UUID] = None
     extra: Optional[dict[str, Any]] = None
+    effectivity: Optional[dict[str, Any]] = None
 
 
 class DiagramWrite(BaseModel):
@@ -188,6 +192,7 @@ class ArtifactOut(OrmModel):
     v_node_key: str
     progress: int
     extra: dict[str, Any] = Field(default_factory=dict)
+    effectivity: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactTree(ArtifactOut):
@@ -232,6 +237,7 @@ class BomItemOut(OrmModel):
     supplier: str
     linked_artifact_id: Optional[UUID]
     extra: dict[str, Any] = Field(default_factory=dict)
+    effectivity: dict[str, Any] = Field(default_factory=dict)
 
 
 class FindingOut(OrmModel):
@@ -256,6 +262,9 @@ class QualitySummary(BaseModel):
     critical: int
     by_viewpoint: dict[str, dict[str, float]]
     by_domain: dict[str, dict[str, float]]
+    config_id: Optional[str] = None
+    config_name: str = ""
+    mode: str = "150"
 
 
 class DiagramOut(BaseModel):
@@ -282,3 +291,80 @@ class ReportOut(BaseModel):
 class ArtifactWizardOut(BaseModel):
     created: list[ArtifactOut]
     links: list[TraceLinkOut] = Field(default_factory=list)
+
+
+class VariantValueCreate(BaseModel):
+    key: str
+    name: str
+    sort_order: int = 0
+
+
+class VariantValueUpdate(BaseModel):
+    key: Optional[str] = None
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class VariantCreate(BaseModel):
+    key: str
+    name: str
+    description: str = ""
+    sort_order: int = 0
+    values: list[VariantValueCreate] = Field(default_factory=list)
+
+
+class VariantUpdate(BaseModel):
+    key: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class VariantValueOut(OrmModel):
+    id: UUID
+    variant_id: UUID
+    key: str
+    name: str
+    sort_order: int
+
+
+class VariantOut(OrmModel):
+    id: UUID
+    project_id: UUID
+    key: str
+    name: str
+    description: str
+    sort_order: int
+    values: list[VariantValueOut] = Field(default_factory=list)
+
+
+class ProductConfigurationCreate(BaseModel):
+    key: str
+    name: str
+    description: str = ""
+    selection: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProductConfigurationUpdate(BaseModel):
+    key: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    selection: Optional[dict[str, Any]] = None
+
+
+class ProductConfigurationOut(OrmModel):
+    id: UUID
+    project_id: UUID
+    key: str
+    name: str
+    description: str
+    selection: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConfigDictionaryOut(BaseModel):
+    variants: list[VariantOut]
+    configurations: list[ProductConfigurationOut]
+
+
+class EffectivityPatch(BaseModel):
+    effectivity: dict[str, Any] = Field(default_factory=dict)

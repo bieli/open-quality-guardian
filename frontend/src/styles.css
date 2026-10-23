@@ -82,6 +82,28 @@ a.card:hover, button.card:hover { transform: translateY(-2px); transition: 180ms
 .side nav a.active, .side nav a:hover { background: var(--crimson); color: #fffaf2; }
 .side .project-name { font-size: 18px; margin: 0; }
 .main { padding: 28px 32px 64px; min-width: 0; }
+.config-bar {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  padding: 12px 16px; margin-bottom: 18px;
+}
+.config-bar strong { display: block; font-size: 15px; margin-top: 2px; }
+.seg {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #fff;
+}
+.seg button {
+  border: 0; background: transparent; padding: 7px 14px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.seg button.on { background: var(--crimson); color: #fffaf2; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.eff-checks { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.architect { display: grid; grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
+.architect-tree { max-height: calc(100vh - 220px); overflow: auto; }
+.architect-inspector { min-height: 420px; }
+.tree-item.on { border-color: var(--crimson); box-shadow: 0 0 0 3px rgba(156,29,51,0.12); }
+button.tree-item {
+  display: block; width: 100%; text-align: left; background: #fff;
+}
 .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
 .topbar h1 { margin: 6px 0 0; font-size: 36px; }
 
@@ -300,7 +322,7 @@ button, .btn { cursor: pointer; }
 @media (max-width: 980px) {
   .shell { grid-template-columns: 1fr; }
   .side { position: relative; height: auto; }
-  .metrics, .split, .two, .three { grid-template-columns: 1fr; }
+  .metrics, .split, .two, .three, .architect { grid-template-columns: 1fr; }
   .v-row { grid-template-columns: 1fr; }
   .v-gutter { display: none; }
   .workflow-studio { grid-template-columns: 1fr; height: auto; }

@@ -99,6 +99,7 @@ def make_artifact(
     description: str = "",
     parent_id: Optional[UUID] = None,
     extra: Optional[dict[str, Any]] = None,
+    effectivity: Optional[dict[str, Any]] = None,
 ) -> Artifact:
     if parent_id:
         get_artifact(db, project_id, parent_id)
@@ -116,6 +117,7 @@ def make_artifact(
         v_node_key=v_node_key,
         progress=max(0, min(100, progress)),
         extra=extra or {},
+        effectivity=effectivity or {},
     )
     db.add(row)
     db.flush()
@@ -138,6 +140,8 @@ def apply_artifact_fields(row: Artifact, data: dict[str, Any]) -> None:
             row.progress = max(0, min(100, int(value)))
         elif key == "extra" and value is not None:
             row.extra = value
+        elif key == "effectivity" and value is not None:
+            row.effectivity = value
         else:
             setattr(row, key, value)
 

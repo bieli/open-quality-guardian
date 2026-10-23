@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.crud import (
     add_link,
@@ -22,9 +22,11 @@ from app.models import (
     Domain,
     LifecycleStatus,
     LinkType,
+    ProductConfiguration,
     Project,
-    QualityFinding,
     TraceLink,
+    Variant,
+    VariantValue,
     Viewpoint,
 )
 from app.schemas import (
@@ -34,9 +36,13 @@ from app.schemas import (
     BomItemCreate,
     BomItemOut,
     BomItemUpdate,
+    ConfigDictionaryOut,
     DiagramOut,
     DiagramWrite,
     FindingOut,
+    ProductConfigurationCreate,
+    ProductConfigurationOut,
+    ProductConfigurationUpdate,
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
@@ -44,10 +50,22 @@ from app.schemas import (
     ReportOut,
     TraceLinkCreate,
     TraceLinkOut,
+    VariantCreate,
+    VariantOut,
+    VariantUpdate,
+    VariantValueCreate,
+    VariantValueOut,
+    VariantValueUpdate,
     VModelNodeOut,
 )
 from app.seed import _slugify, seed_v_model
-from app.services.quality import compute_quality, missing_links, rebuild_findings, v_model_enriched
+from app.services.config import (
+    get_configuration,
+    matched_artifact_ids,
+    resolve_artifacts,
+    resolve_bom,
+)
+from app.services.quality import compute_quality, findings_for_view, missing_links, rebuild_findings, v_model_enriched
 from app.wizards import router as wizard_router
 
 router = APIRouter()
@@ -59,6 +77,25 @@ def _project(db: Session, project_id: UUID) -> Project:
     if not project:
         raise HTTPException(404, "Project not found")
     return project
+
+
+def _ctx(db: Session, project_id: UUID, config_id: UUID | None):
+    cfg = get_configuration(db, project_id, config_id)
+    selection = dict(cfg.selection or {}) if cfg else None
+    return selection, cfg
+
+
+def _quality(db: Session, project_id: UUID, config_id: UUID | None = None) -> dict:
+    selection, cfg = _ctx(db, project_id, config_id)
+    if selection is None:
+        rebuild_findings(db, project_id)
+    return compute_quality(
+        db,
+        project_id,
+        selection=selection,
+        config_id=cfg.id if cfg else None,
+        config_name=cfg.name if cfg else "",
+    )
 
 
 @router.get("/projects")
@@ -115,12 +152,16 @@ def get_project(project_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/artifacts", response_model=list[ArtifactOut])
-def list_artifacts(project_id: UUID, viewpoint: str | None = None, db: Session = Depends(get_db)):
+def list_artifacts(
+    project_id: UUID, viewpoint: str | None = None, config_id: UUID | None = None, db: Session = Depends(get_db)
+):
     _project(db, project_id)
+    selection, _ = _ctx(db, project_id, config_id)
     q = db.query(Artifact).filter(Artifact.project_id == project_id)
     if viewpoint:
         q = q.filter(Artifact.viewpoint == viewpoint)
-    return q.order_by(Artifact.identifier).all()
+    rows = q.order_by(Artifact.identifier).all()
+    return resolve_artifacts(rows, selection, keep_ancestors=True)
 
 
 @router.post("/projects/{project_id}/artifacts", response_model=ArtifactOut)
@@ -141,6 +182,7 @@ def create_artifact(project_id: UUID, payload: ArtifactCreate, db: Session = Dep
         progress=payload.progress,
         parent_id=payload.parent_id,
         extra=payload.extra,
+        effectivity=payload.effectivity,
     )
     db.commit()
     db.refresh(row)
@@ -164,40 +206,41 @@ def remove_artifact(project_id: UUID, artifact_id: UUID, db: Session = Depends(g
 
 
 @router.get("/projects/{project_id}/v-model", response_model=list[VModelNodeOut])
-def get_v_model(project_id: UUID, db: Session = Depends(get_db)):
+def get_v_model(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    return v_model_enriched(db, project_id)
+    selection, _ = _ctx(db, project_id, config_id)
+    return v_model_enriched(db, project_id, selection)
 
 
 @router.get("/projects/{project_id}/quality", response_model=QualitySummary)
-def get_quality(project_id: UUID, db: Session = Depends(get_db)):
+def get_quality(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    rebuild_findings(db, project_id)
+    summary = _quality(db, project_id, config_id)
     db.commit()
-    return compute_quality(db, project_id)
+    return summary
 
 
 @router.get("/projects/{project_id}/findings", response_model=list[FindingOut])
-def get_findings(project_id: UUID, db: Session = Depends(get_db)):
+def get_findings(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    rebuild_findings(db, project_id)
-    db.commit()
-    _project(db, project_id)
-    return (
-        db.query(QualityFinding)
-        .filter(QualityFinding.project_id == project_id)
-        .order_by(QualityFinding.severity.desc())
-        .all()
-    )
+    selection, _ = _ctx(db, project_id, config_id)
+    rows = findings_for_view(db, project_id, selection)
+    if selection is None:
+        db.commit()
+    return rows
 
 
 @router.get("/projects/{project_id}/traceability", response_model=list[TraceLinkOut])
-def get_traceability(project_id: UUID, db: Session = Depends(get_db)):
+def get_traceability(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+    selection, _ = _ctx(db, project_id, config_id)
     arts = {a.id: a for a in db.query(Artifact).filter(Artifact.project_id == project_id).all()}
+    keep = matched_artifact_ids(arts.values(), selection)
+    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
     out = []
     for link in links:
+        if selection is not None and (link.source_id not in keep or link.target_id not in keep):
+            continue
         src, dst = arts.get(link.source_id), arts.get(link.target_id)
         out.append(
             TraceLinkOut(
@@ -243,10 +286,17 @@ def delete_link(project_id: UUID, link_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/trace-matrix")
-def trace_matrix(project_id: UUID, db: Session = Depends(get_db)):
+def trace_matrix(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-    links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+    selection, _ = _ctx(db, project_id, config_id)
+    all_arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    keep = matched_artifact_ids(all_arts, selection)
+    arts = [a for a in all_arts if a.id in keep]
+    links = [
+        l
+        for l in db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+        if l.source_id in keep and l.target_id in keep
+    ]
     reqs = [a for a in arts if a.kind.value in {"requirement", "customer_feature", "stakeholder_need"}]
     funcs = [a for a in arts if a.kind.value in {"function", "action", "logical_block"}]
     link_set = {(str(l.source_id), str(l.target_id)) for l in links} | {(str(l.target_id), str(l.source_id)) for l in links}
@@ -276,14 +326,16 @@ def trace_matrix(project_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/diagrams", response_model=list[DiagramOut])
-def list_diagrams(project_id: UUID, db: Session = Depends(get_db)):
+def list_diagrams(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
+    selection, _ = _ctx(db, project_id, config_id)
     rows = (
         db.query(Artifact)
         .filter(Artifact.project_id == project_id, Artifact.kind == ArtifactKind.FUNCTION)
         .order_by(Artifact.identifier)
         .all()
     )
+    rows = resolve_artifacts(rows, selection, keep_ancestors=False)
     diagrams = []
     for row in rows:
         extra = row.extra or {}
@@ -392,9 +444,11 @@ def update_diagram(project_id: UUID, artifact_id: UUID, payload: DiagramWrite, d
 
 
 @router.get("/projects/{project_id}/bom", response_model=list[BomItemOut])
-def get_bom(project_id: UUID, db: Session = Depends(get_db)):
+def get_bom(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    return db.query(BomItem).filter(BomItem.project_id == project_id).order_by(BomItem.category, BomItem.part_number).all()
+    selection, _ = _ctx(db, project_id, config_id)
+    rows = db.query(BomItem).filter(BomItem.project_id == project_id).order_by(BomItem.category, BomItem.part_number).all()
+    return resolve_bom(rows, selection)
 
 
 @router.post("/projects/{project_id}/bom", response_model=BomItemOut)
@@ -432,30 +486,32 @@ def delete_bom(project_id: UUID, item_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/tests", response_model=list[ArtifactOut])
-def get_tests(project_id: UUID, db: Session = Depends(get_db)):
+def get_tests(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     _project(db, project_id)
-    return (
+    selection, _ = _ctx(db, project_id, config_id)
+    rows = (
         db.query(Artifact)
         .filter(Artifact.project_id == project_id, Artifact.viewpoint == Viewpoint.T)
         .order_by(Artifact.identifier)
         .all()
     )
+    return resolve_artifacts(rows, selection, keep_ancestors=True)
 
 
 @router.get("/projects/{project_id}/report", response_model=ReportOut)
-def get_report(project_id: UUID, db: Session = Depends(get_db)):
+def get_report(project_id: UUID, config_id: UUID | None = None, db: Session = Depends(get_db)):
     project = _project(db, project_id)
-    quality = compute_quality(db, project_id)
-    findings = (
-        db.query(QualityFinding)
-        .filter(QualityFinding.project_id == project_id, QualityFinding.status == "open")
-        .all()
-    )
-    vnodes = v_model_enriched(db, project_id)
-    missing = missing_links(db, project_id)
+    selection, cfg = _ctx(db, project_id, config_id)
+    quality = _quality(db, project_id, config_id)
+    findings = findings_for_view(db, project_id, selection)
+    if selection is None:
+        db.commit()
+    vnodes = v_model_enriched(db, project_id, selection)
+    missing = missing_links(db, project_id, selection)
     weakest = sorted(vnodes, key=lambda n: n["coverage"] + n["progress"])[:3]
+    scope = f" for {cfg.name}" if cfg else " across the 150% product definition"
     narrative = (
-        f"{project.name} currently scores {quality['score']}/100 on integrated quality. "
+        f"{project.name} currently scores {quality['score']}/100 on integrated quality{scope}. "
         f"Requirement verification coverage is {quality['coverage']}% "
         f"({quality['verified_requirements']}/{quality['requirements']}). "
         f"There are {quality['open_gaps']} open gaps and {quality['critical']} critical findings. "
@@ -471,3 +527,233 @@ def get_report(project_id: UUID, db: Session = Depends(get_db)):
         missing_links=missing,
         narrative=narrative,
     )
+
+
+def _variant_or_404(db: Session, project_id: UUID, variant_id: UUID) -> Variant:
+    row = db.get(Variant, variant_id)
+    if not row or row.project_id != project_id:
+        raise HTTPException(404, "Variant not found")
+    return row
+
+
+@router.get("/projects/{project_id}/config-dictionary", response_model=ConfigDictionaryOut)
+def get_dictionary(project_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    variants = (
+        db.query(Variant)
+        .options(selectinload(Variant.values))
+        .filter(Variant.project_id == project_id)
+        .order_by(Variant.sort_order, Variant.key)
+        .all()
+    )
+    configs = (
+        db.query(ProductConfiguration)
+        .filter(ProductConfiguration.project_id == project_id)
+        .order_by(ProductConfiguration.name)
+        .all()
+    )
+    return ConfigDictionaryOut(variants=variants, configurations=configs)
+
+
+@router.get("/projects/{project_id}/variants", response_model=list[VariantOut])
+def list_variants(project_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    return db.query(Variant).options(selectinload(Variant.values)).filter(Variant.project_id == project_id).order_by(Variant.sort_order, Variant.key).all()
+
+
+@router.post("/projects/{project_id}/variants", response_model=VariantOut)
+def create_variant(project_id: UUID, payload: VariantCreate, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    row = Variant(
+        project_id=project_id,
+        key=payload.key.strip(),
+        name=payload.name.strip(),
+        description=payload.description,
+        sort_order=payload.sort_order,
+    )
+    db.add(row)
+    db.flush()
+    for i, value in enumerate(payload.values):
+        db.add(
+            VariantValue(
+                variant_id=row.id,
+                key=value.key.strip(),
+                name=value.name.strip(),
+                sort_order=value.sort_order if value.sort_order else i,
+            )
+        )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.patch("/projects/{project_id}/variants/{variant_id}", response_model=VariantOut)
+def update_variant(project_id: UUID, variant_id: UUID, payload: VariantUpdate, db: Session = Depends(get_db)):
+    row = _variant_or_404(db, project_id, variant_id)
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, key, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/projects/{project_id}/variants/{variant_id}", status_code=204)
+def delete_variant(project_id: UUID, variant_id: UUID, db: Session = Depends(get_db)):
+    row = _variant_or_404(db, project_id, variant_id)
+    db.delete(row)
+    db.commit()
+    return None
+
+
+@router.post("/projects/{project_id}/variants/{variant_id}/values", response_model=VariantValueOut)
+def create_variant_value(
+    project_id: UUID, variant_id: UUID, payload: VariantValueCreate, db: Session = Depends(get_db)
+):
+    _variant_or_404(db, project_id, variant_id)
+    row = VariantValue(
+        variant_id=variant_id,
+        key=payload.key.strip(),
+        name=payload.name.strip(),
+        sort_order=payload.sort_order,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.patch("/projects/{project_id}/variant-values/{value_id}", response_model=VariantValueOut)
+def update_variant_value(project_id: UUID, value_id: UUID, payload: VariantValueUpdate, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    row = db.get(VariantValue, value_id)
+    if not row:
+        raise HTTPException(404, "Variant value not found")
+    variant = db.get(Variant, row.variant_id)
+    if not variant or variant.project_id != project_id:
+        raise HTTPException(404, "Variant value not found")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, key, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/projects/{project_id}/variant-values/{value_id}", status_code=204)
+def delete_variant_value(project_id: UUID, value_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    row = db.get(VariantValue, value_id)
+    if not row:
+        raise HTTPException(404, "Variant value not found")
+    variant = db.get(Variant, row.variant_id)
+    if not variant or variant.project_id != project_id:
+        raise HTTPException(404, "Variant value not found")
+    db.delete(row)
+    db.commit()
+    return None
+
+
+@router.get("/projects/{project_id}/configurations", response_model=list[ProductConfigurationOut])
+def list_configurations(project_id: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    return (
+        db.query(ProductConfiguration)
+        .filter(ProductConfiguration.project_id == project_id)
+        .order_by(ProductConfiguration.name)
+        .all()
+    )
+
+
+@router.post("/projects/{project_id}/configurations", response_model=ProductConfigurationOut)
+def create_configuration(project_id: UUID, payload: ProductConfigurationCreate, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    row = ProductConfiguration(
+        project_id=project_id,
+        key=payload.key.strip(),
+        name=payload.name.strip(),
+        description=payload.description,
+        selection=payload.selection,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.patch("/projects/{project_id}/configurations/{config_id}", response_model=ProductConfigurationOut)
+def update_configuration(
+    project_id: UUID, config_id: UUID, payload: ProductConfigurationUpdate, db: Session = Depends(get_db)
+):
+    row = get_configuration(db, project_id, config_id)
+    if not row:
+        raise HTTPException(404, "Configuration not found")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if isinstance(value, str):
+            setattr(row, key, value.strip())
+        else:
+            setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/projects/{project_id}/configurations/{config_id}", status_code=204)
+def delete_configuration(project_id: UUID, config_id: UUID, db: Session = Depends(get_db)):
+    row = get_configuration(db, project_id, config_id)
+    if not row:
+        raise HTTPException(404, "Configuration not found")
+    db.delete(row)
+    db.commit()
+    return None
+
+
+def _snapshot(db: Session, project_id: UUID, config_id: UUID) -> dict:
+    selection, cfg = _ctx(db, project_id, config_id)
+    arts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
+    keep = matched_artifact_ids(arts, selection)
+    resolved = [a for a in arts if a.id in keep]
+    bom = resolve_bom(db.query(BomItem).filter(BomItem.project_id == project_id).all(), selection)
+    tests = [a for a in resolved if a.viewpoint == Viewpoint.T]
+    reqs = [a for a in resolved if a.kind.value in {"requirement", "customer_feature", "stakeholder_need"}]
+    quality = compute_quality(
+        db, project_id, selection=selection, config_id=cfg.id if cfg else None, config_name=cfg.name if cfg else ""
+    )
+    return {
+        "config": ProductConfigurationOut.model_validate(cfg).model_dump(mode="json") if cfg else None,
+        "quality": quality,
+        "artifacts": {str(a.id): {"id": str(a.id), "identifier": a.identifier, "title": a.title, "kind": a.kind.value, "viewpoint": a.viewpoint.value} for a in resolved},
+        "requirements": [{"id": str(a.id), "identifier": a.identifier, "title": a.title} for a in reqs],
+        "tests": [{"id": str(a.id), "identifier": a.identifier, "title": a.title, "status": a.status.value} for a in tests],
+        "bom": [{"id": str(b.id), "part_number": b.part_number, "name": b.name, "qty": b.qty} for b in bom],
+    }
+
+
+@router.get("/projects/{project_id}/config-compare")
+def compare_configurations(project_id: UUID, left: UUID, right: UUID, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    a = _snapshot(db, project_id, left)
+    b = _snapshot(db, project_id, right)
+
+    def keyed(rows: list[dict], key: str) -> dict[str, dict]:
+        return {row[key]: row for row in rows}
+
+    def diff(left_rows: list[dict], right_rows: list[dict], key: str):
+        lmap, rmap = keyed(left_rows, key), keyed(right_rows, key)
+        only_left = [lmap[k] for k in lmap if k not in rmap]
+        only_right = [rmap[k] for k in rmap if k not in lmap]
+        both = [k for k in lmap if k in rmap]
+        return {"only_left": only_left, "only_right": only_right, "shared": len(both)}
+
+    return {
+        "left": a["config"],
+        "right": b["config"],
+        "quality_left": a["quality"],
+        "quality_right": b["quality"],
+        "quality_delta": {
+            "score": (b["quality"]["score"] or 0) - (a["quality"]["score"] or 0),
+            "coverage": round((b["quality"]["coverage"] or 0) - (a["quality"]["coverage"] or 0), 1),
+            "open_gaps": (b["quality"]["open_gaps"] or 0) - (a["quality"]["open_gaps"] or 0),
+        },
+        "requirements": diff(a["requirements"], b["requirements"], "identifier"),
+        "tests": diff(a["tests"], b["tests"], "identifier"),
+        "bom": diff(a["bom"], b["bom"], "part_number"),
+    }

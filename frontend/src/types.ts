@@ -10,6 +10,9 @@ export type Quality = {
   critical: number;
   by_viewpoint: Record<string, { count: number; progress: number; verified: number }>;
   by_domain: Record<string, { count: number; progress: number; verified: number }>;
+  config_id?: string | null;
+  config_name?: string;
+  mode?: string;
 };
 
 export type Project = {
@@ -37,6 +40,7 @@ export type Artifact = {
   v_node_key: string;
   progress: number;
   extra: Record<string, unknown>;
+  effectivity?: Record<string, string[]>;
 };
 
 export type VNode = {
@@ -97,6 +101,8 @@ export type BomItem = {
   category: string;
   supplier: string;
   linked_artifact_id: string | null;
+  extra?: Record<string, unknown>;
+  effectivity?: Record<string, string[]>;
 };
 
 export type Report = {
@@ -120,4 +126,47 @@ export type TraceMatrix = {
     missing: number;
   }[];
   functions: { id: string; identifier: string; title: string }[];
+};
+
+export type VariantValue = {
+  id: string;
+  variant_id: string;
+  key: string;
+  name: string;
+  sort_order: number;
+};
+
+export type Variant = {
+  id: string;
+  project_id: string;
+  key: string;
+  name: string;
+  description: string;
+  sort_order: number;
+  values: VariantValue[];
+};
+
+export type ProductConfiguration = {
+  id: string;
+  project_id: string;
+  key: string;
+  name: string;
+  description: string;
+  selection: Record<string, string>;
+};
+
+export type ConfigDictionary = {
+  variants: Variant[];
+  configurations: ProductConfiguration[];
+};
+
+export type ConfigCompare = {
+  left: ProductConfiguration;
+  right: ProductConfiguration;
+  quality_left: Quality;
+  quality_right: Quality;
+  quality_delta: { score: number; coverage: number; open_gaps: number };
+  requirements: { only_left: { identifier: string; title: string }[]; only_right: { identifier: string; title: string }[]; shared: number };
+  tests: { only_left: { identifier: string; title: string }[]; only_right: { identifier: string; title: string }[]; shared: number };
+  bom: { only_left: { part_number: string; name: string }[]; only_right: { part_number: string; name: string }[]; shared: number };
 };

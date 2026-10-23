@@ -125,6 +125,10 @@ class Project(Base):
     v_nodes: Mapped[list[VModelNode]] = relationship(back_populates="project", cascade="all, delete-orphan")
     bom_items: Mapped[list[BomItem]] = relationship(back_populates="project", cascade="all, delete-orphan")
     findings: Mapped[list[QualityFinding]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    variants: Mapped[list[Variant]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    configurations: Mapped[list[ProductConfiguration]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Artifact(Base):
@@ -144,6 +148,7 @@ class Artifact(Base):
     v_node_key: Mapped[str] = mapped_column(String(80), default="")
     progress: Mapped[int] = mapped_column(Integer, default=0)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    effectivity: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     project: Mapped[Project] = relationship(back_populates="artifacts")
@@ -196,6 +201,7 @@ class BomItem(Base):
     supplier: Mapped[str] = mapped_column(String(120), default="")
     linked_artifact_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("artifacts.id"), nullable=True)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    effectivity: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     project: Mapped[Project] = relationship(back_populates="bom_items")
 
@@ -226,3 +232,49 @@ class QualityFinding(Base):
     status: Mapped[str] = mapped_column(String(40), default="open")
 
     project: Mapped[Project] = relationship(back_populates="findings")
+
+
+class Variant(Base):
+    __tablename__ = "variants"
+    __table_args__ = (UniqueConstraint("project_id", "key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
+    key: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    project: Mapped[Project] = relationship(back_populates="variants")
+    values: Mapped[list[VariantValue]] = relationship(
+        back_populates="variant",
+        cascade="all, delete-orphan",
+        order_by="VariantValue.sort_order",
+    )
+
+
+class VariantValue(Base):
+    __tablename__ = "variant_values"
+    __table_args__ = (UniqueConstraint("variant_id", "key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    variant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("variants.id"), index=True)
+    key: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(120))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    variant: Mapped[Variant] = relationship(back_populates="values")
+
+
+class ProductConfiguration(Base):
+    __tablename__ = "product_configurations"
+    __table_args__ = (UniqueConstraint("project_id", "key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uid)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
+    key: Mapped[str] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    selection: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    project: Mapped[Project] = relationship(back_populates="configurations")

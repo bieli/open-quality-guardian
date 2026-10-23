@@ -12,8 +12,11 @@ from app.models import (
     Domain,
     LifecycleStatus,
     LinkType,
+    ProductConfiguration,
     Project,
     TraceLink,
+    Variant,
+    VariantValue,
     VModelNode,
     VSide,
     Viewpoint,
@@ -43,6 +46,7 @@ def art(
     progress: int = 40,
     description: str = "",
     extra: Optional[dict[str, Any]] = None,
+    effectivity: Optional[dict[str, Any]] = None,
 ) -> Artifact:
     row = Artifact(
         project_id=project.id,
@@ -58,6 +62,7 @@ def art(
         v_node_key=v_node_key,
         progress=progress,
         extra=extra or {},
+        effectivity=effectivity or {},
     )
     db.add(row)
     db.flush()
@@ -65,6 +70,18 @@ def art(
 
 
 def link(db: Session, project: Project, source: Artifact, target: Artifact, link_type: LinkType) -> None:
+    existing = (
+        db.query(TraceLink)
+        .filter(
+            TraceLink.project_id == project.id,
+            TraceLink.source_id == source.id,
+            TraceLink.target_id == target.id,
+            TraceLink.link_type == link_type,
+        )
+        .first()
+    )
+    if existing:
+        return
     db.add(
         TraceLink(
             project_id=project.id,
@@ -533,6 +550,7 @@ def seed_vacuum(db: Session) -> Project:
     link(db, project, req_batt, mcu, LinkType.TRACES)
 
     db.flush()
+    seed_vacuum_configuration(db, project)
     rebuild_findings(db, project.id)
     return project
 
@@ -548,6 +566,223 @@ def seed_blank_template(db: Session) -> Project:
     db.flush()
     seed_v_model(db, project)
     return project
+
+
+def _by_ident(db: Session, project: Project, identifier: str) -> Optional[Artifact]:
+    return (
+        db.query(Artifact)
+        .filter(Artifact.project_id == project.id, Artifact.identifier == identifier)
+        .first()
+    )
+
+
+def _set_effectivity(row: Artifact | BomItem, expr: dict[str, Any]) -> None:
+    row.effectivity = expr
+
+
+def seed_vacuum_configuration(db: Session, project: Project) -> None:
+    """One dictionary that filters requirements, physical parts and tests together."""
+    if db.query(Variant).filter(Variant.project_id == project.id).count():
+        return
+
+    sku = Variant(project_id=project.id, key="sku", name="SKU", description="Product offering", sort_order=0)
+    nav = Variant(project_id=project.id, key="nav", name="Navigation", description="Perception stack", sort_order=1)
+    region = Variant(project_id=project.id, key="region", name="Region", description="Power and compliance", sort_order=2)
+    db.add_all([sku, nav, region])
+    db.flush()
+    for i, (key, name) in enumerate([("home", "Home"), ("pro", "Pro")]):
+        db.add(VariantValue(variant_id=sku.id, key=key, name=name, sort_order=i))
+    for i, (key, name) in enumerate([("ir", "IR / ultrasonic"), ("lidar", "LiDAR")]):
+        db.add(VariantValue(variant_id=nav.id, key=key, name=name, sort_order=i))
+    for i, (key, name) in enumerate([("eu", "EU"), ("us", "US")]):
+        db.add(VariantValue(variant_id=region.id, key=key, name=name, sort_order=i))
+
+    configs = [
+        ("home-ir-eu", "Home IR EU", "Entry SKU with IR cliff and ultrasonic ranging.", {"sku": "home", "nav": "ir", "region": "eu"}),
+        ("pro-lidar-eu", "Pro LiDAR EU", "Pro mapping SKU with LiDAR turret and auto-empty dock.", {"sku": "pro", "nav": "lidar", "region": "eu"}),
+        ("pro-lidar-us", "Pro LiDAR US", "US power pack, LiDAR mapping, auto-empty dock.", {"sku": "pro", "nav": "lidar", "region": "us"}),
+    ]
+    for key, name, desc, selection in configs:
+        db.add(ProductConfiguration(project_id=project.id, key=key, name=name, description=desc, selection=selection))
+
+    req_map = _by_ident(db, project, "1.1.1")
+    lidar_req = _by_ident(db, project, "SYS-LIDAR-1")
+    if not lidar_req:
+        lidar_req = art(
+            db,
+            project,
+            "SYS-LIDAR-1",
+            "LiDAR occupancy mapping accuracy",
+            viewpoint=Viewpoint.R,
+            kind=ArtifactKind.REQUIREMENT,
+            parent=req_map,
+            v_node_key="system_req",
+            progress=70,
+            status=S.IN_PROGRESS,
+            owner="Perception lead",
+            description="Pro SKUs shall produce a LiDAR occupancy map with ±30 mm pose error in a furnished room.",
+            effectivity={"sku": ["pro"], "nav": ["lidar"]},
+        )
+    else:
+        _set_effectivity(lidar_req, {"sku": ["pro"], "nav": ["lidar"]})
+
+    cf_dock = _by_ident(db, project, "CF-5")
+    if not cf_dock:
+        cf_dock = art(
+            db,
+            project,
+            "CF-5",
+            "Empty the bin without picking up the robot",
+            viewpoint=Viewpoint.R,
+            kind=ArtifactKind.CUSTOMER_FEATURE,
+            v_node_key="stakeholder_req",
+            progress=40,
+            status=S.IN_PROGRESS,
+            owner="Product Owner",
+            description="Pro offering: dock evacuates debris into a bag. No verification yet — a Pro-only quality gap.",
+            effectivity={"sku": ["pro"]},
+        )
+    else:
+        _set_effectivity(cf_dock, {"sku": ["pro"]})
+
+    req_dock = _by_ident(db, project, "SYS-DOCK-1")
+    if not req_dock:
+        sys = _by_ident(db, project, "1.1")
+        req_dock = art(
+            db,
+            project,
+            "SYS-DOCK-1",
+            "Auto-empty dock cycle",
+            viewpoint=Viewpoint.R,
+            kind=ArtifactKind.REQUIREMENT,
+            parent=sys,
+            v_node_key="system_req",
+            progress=25,
+            status=S.IN_PROGRESS,
+            owner="Mechatronics",
+            description="Dock shall evacuate the dustbin in under 20 s. Intentionally unverified on Pro.",
+            effectivity={"sku": ["pro"]},
+        )
+    else:
+        _set_effectivity(req_dock, {"sku": ["pro"]})
+
+    hw_lidar = _by_ident(db, project, "HW-LIDAR-1")
+    if not hw_lidar:
+        hw_lidar = art(
+            db,
+            project,
+            "HW-LIDAR-1",
+            "LiDAR turret",
+            viewpoint=Viewpoint.P,
+            kind=ArtifactKind.HW_COMPONENT,
+            domain=Domain.HARDWARE,
+            v_node_key="hw_architecture",
+            progress=55,
+            status=S.IN_PROGRESS,
+            owner="Hardware designer",
+            effectivity={"sku": ["pro"], "nav": ["lidar"]},
+        )
+    else:
+        _set_effectivity(hw_lidar, {"sku": ["pro"], "nav": ["lidar"]})
+
+    tc_lidar = _by_ident(db, project, "SYS-V-LIDAR")
+    if not tc_lidar:
+        tc_lidar = art(
+            db,
+            project,
+            "SYS-V-LIDAR",
+            "LiDAR mapping system verification",
+            viewpoint=Viewpoint.T,
+            kind=ArtifactKind.TEST_CASE,
+            domain=Domain.SYSTEM,
+            v_node_key="system_verification",
+            progress=100,
+            status=S.VERIFIED,
+            owner="V&V lead",
+            extra={"subjects": ["LiDAR turret"], "verdict_note": "Pose error 22 mm in furnished test apartment."},
+            effectivity={"sku": ["pro"], "nav": ["lidar"]},
+        )
+    else:
+        _set_effectivity(tc_lidar, {"sku": ["pro"], "nav": ["lidar"]})
+
+    psu_eu = _by_ident(db, project, "HW-PSU-EU")
+    if not psu_eu:
+        psu_eu = art(
+            db,
+            project,
+            "HW-PSU-EU",
+            "EU 230 V dock PSU",
+            viewpoint=Viewpoint.P,
+            kind=ArtifactKind.HW_COMPONENT,
+            domain=Domain.HARDWARE,
+            v_node_key="hw_architecture",
+            progress=80,
+            status=S.IMPLEMENTED,
+            owner="Power electronics",
+            effectivity={"region": ["eu"]},
+        )
+    else:
+        _set_effectivity(psu_eu, {"region": ["eu"]})
+
+    psu_us = _by_ident(db, project, "HW-PSU-US")
+    if not psu_us:
+        psu_us = art(
+            db,
+            project,
+            "HW-PSU-US",
+            "US 120 V dock PSU",
+            viewpoint=Viewpoint.P,
+            kind=ArtifactKind.HW_COMPONENT,
+            domain=Domain.HARDWARE,
+            v_node_key="hw_architecture",
+            progress=80,
+            status=S.IMPLEMENTED,
+            owner="Power electronics",
+            effectivity={"region": ["us"]},
+        )
+    else:
+        _set_effectivity(psu_us, {"region": ["us"]})
+
+    link(db, project, lidar_req, hw_lidar, LinkType.ALLOCATES)
+    link(db, project, tc_lidar, lidar_req, LinkType.VERIFIES)
+    link(db, project, cf_dock, req_dock, LinkType.REFINES)
+
+    def ensure_bom(part_number: str, name: str, qty: float, category: str, supplier: str, expr: dict[str, Any], linked: Optional[Artifact]) -> None:
+        existing = (
+            db.query(BomItem)
+            .filter(BomItem.project_id == project.id, BomItem.part_number == part_number)
+            .first()
+        )
+        if existing:
+            existing.effectivity = expr
+            return
+        db.add(
+            BomItem(
+                project_id=project.id,
+                part_number=part_number,
+                name=name,
+                qty=qty,
+                category=category,
+                supplier=supplier,
+                linked_artifact_id=linked.id if linked else None,
+                effectivity=expr,
+            )
+        )
+
+    ensure_bom("RPLIDAR-A1M8", "LiDAR turret module", 1, "electrical", "Slamtec", {"sku": ["pro"], "nav": ["lidar"]}, hw_lidar)
+    ensure_bom("DOCK-AUTOEMPTY", "Auto-empty dock", 1, "mechanical", "Internal", {"sku": ["pro"]}, None)
+    ensure_bom("PSU-230-EU", "Dock PSU 230 V", 1, "electrical", "Mean Well", {"region": ["eu"]}, psu_eu)
+    ensure_bom("PSU-120-US", "Dock PSU 120 V", 1, "electrical", "Mean Well", {"region": ["us"]}, psu_us)
+    db.flush()
+
+
+def ensure_vacuum_configuration(db: Session) -> None:
+    project = db.query(Project).filter(Project.slug == "aurora-vac").first()
+    if not project:
+        return
+    seed_vacuum_configuration(db, project)
+    rebuild_findings(db, project.id)
+    db.commit()
 
 
 def seed_if_empty(db: Session) -> None:

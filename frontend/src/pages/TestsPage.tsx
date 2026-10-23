@@ -6,11 +6,13 @@ import { StatusChip } from "../components/Bits";
 import { ArtifactEditor, VerificationWizard } from "../components/Wizards";
 import { Btn } from "../components/ui";
 import type { Artifact } from "../types";
+import { formatEffectivity, useProjectConfig } from "../ConfigContext";
 
 export function TestsPage() {
   const { id } = useParams();
+  const { activeConfigId } = useProjectConfig();
   const qc = useQueryClient();
-  const tests = useQuery({ queryKey: ["tests", id], queryFn: () => api.tests(id!), enabled: !!id });
+  const tests = useQuery({ queryKey: ["tests", id, activeConfigId], queryFn: () => api.tests(id!, activeConfigId), enabled: !!id });
   const [wizard, setWizard] = useState(false);
   const [edit, setEdit] = useState<Artifact | null>(null);
   const verdict = useMutation({
@@ -48,7 +50,10 @@ export function TestsPage() {
                 </td>
                 <td onClick={() => setEdit(t)} style={{ cursor: "pointer" }}>
                   {t.title}
-                  <div className="small muted">{t.kind.replaceAll("_", " ")} · {t.v_node_key}</div>
+                  <div className="small muted">
+                    {t.kind.replaceAll("_", " ")} · {t.v_node_key}
+                    {t.effectivity && Object.keys(t.effectivity).length ? ` · ${formatEffectivity(t.effectivity)}` : ""}
+                  </div>
                 </td>
                 <td className="small">
                   {Array.isArray(t.extra?.subjects) ? (t.extra.subjects as string[]).join(", ") : t.description}

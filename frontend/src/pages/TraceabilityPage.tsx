@@ -4,12 +4,14 @@ import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { LinkWizard } from "../components/Wizards";
 import { Btn } from "../components/ui";
+import { useProjectConfig } from "../ConfigContext";
 
 export function TraceabilityPage() {
   const { id } = useParams();
+  const { activeConfigId } = useProjectConfig();
   const qc = useQueryClient();
-  const matrix = useQuery({ queryKey: ["matrix", id], queryFn: () => api.matrix(id!), enabled: !!id });
-  const links = useQuery({ queryKey: ["links", id], queryFn: () => api.links(id!), enabled: !!id });
+  const matrix = useQuery({ queryKey: ["matrix", id, activeConfigId], queryFn: () => api.matrix(id!, activeConfigId), enabled: !!id });
+  const links = useQuery({ queryKey: ["links", id, activeConfigId], queryFn: () => api.links(id!, activeConfigId), enabled: !!id });
   const [wizard, setWizard] = useState(false);
   const del = useMutation({
     mutationFn: (lid: string) => api.deleteLink(id!, lid),

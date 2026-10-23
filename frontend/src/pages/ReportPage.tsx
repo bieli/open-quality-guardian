@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { QualityRing, StatusChip } from "../components/Bits";
+import { useProjectConfig } from "../ConfigContext";
 
 export function ReportPage() {
   const { id } = useParams();
-  const report = useQuery({ queryKey: ["report", id], queryFn: () => api.report(id!), enabled: !!id });
+  const { activeConfigId } = useProjectConfig();
+  const report = useQuery({ queryKey: ["report", id, activeConfigId], queryFn: () => api.report(id!, activeConfigId), enabled: !!id });
   const r = report.data;
   return (
     <div className="stack">

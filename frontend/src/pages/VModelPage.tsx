@@ -6,6 +6,7 @@ import { StatusChip } from "../components/Bits";
 import type { Artifact, VNode } from "../types";
 import { ArtifactEditor, RequirementWizard, VerificationWizard } from "../components/Wizards";
 import { Btn } from "../components/ui";
+import { useProjectConfig } from "../ConfigContext";
 
 function NodeCard({ n, on, set }: { n?: VNode; on: string; set: (k: string) => void }) {
   if (!n) return null;
@@ -27,8 +28,9 @@ function NodeCard({ n, on, set }: { n?: VNode; on: string; set: (k: string) => v
 
 export function VModelPage() {
   const { id } = useParams();
-  const q = useQuery({ queryKey: ["vmodel", id], queryFn: () => api.vmodel(id!), enabled: !!id });
-  const arts = useQuery({ queryKey: ["arts", id], queryFn: () => api.artifacts(id!), enabled: !!id });
+  const { activeConfigId } = useProjectConfig();
+  const q = useQuery({ queryKey: ["vmodel", id, activeConfigId], queryFn: () => api.vmodel(id!, activeConfigId), enabled: !!id });
+  const arts = useQuery({ queryKey: ["arts", id, activeConfigId], queryFn: () => api.artifacts(id!, undefined, activeConfigId), enabled: !!id });
   const [key, setKey] = useState("system_architecture");
   const [verify, setVerify] = useState(false);
   const [addReq, setAddReq] = useState(false);
