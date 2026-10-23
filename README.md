@@ -2,7 +2,7 @@
 
 A quality-planning platform for **complex products**: requirements, functions, logical and physical design, installations plans, deploments plans, CADs specification, BOMs, KiCad schemas or PCBs, tests pyramid and reports on one digital thread.
 
-Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product owners and program managers as much as systems engineers. 
+Inspired by `RFLP` methodology and `V-model` views, but aimed at product owners and program managers as much as systems engineers. 
 Details stay visible; quality is the product.
 
 This project multidisciplinary paradigms from systems engineering and support both: software and hardware enginering.
