@@ -40,6 +40,4 @@ Hot reload is on for both FastAPI (`--reload`) and Vite. Postgres data lives in 
 
 Every program is a **project**. Quality work items are **artifacts** (requirement, function, logical block, software/hardware component, test, CAD, KiCad, BOM, specification). **Trace links** (`satisfies`, `allocates`, `implements`, `verifies`, `validates`…) stitch the V. Quality rules emit **findings** when a requirement has no verification, a function has no allocation, a test failed, or schematic parts drift from the BOM.
 
-## Polski
-
-Backend jest w Pythonie (FastAPI), frontend w React. Uruchomienie deweloperskie na Linuxie: `docker compose up --build`. Rdzeniem platformy nie jest „kolejny tracker zadań”, tylko **jakość złożonego wyrobu**: czy wymaganie ma dowód, czy funkcja ma alokację, czy CAD/BOM/KiCad i testy trzymają się tego samego wątku.
+The backend is built with Python (FastAPI), and the frontend with React. To run the development environment on Linux, use: `docker compose up --build`. The core of the platform is not "just another task tracker," but rather the quality of a complex product: ensuring that requirements have supporting evidence, functions have assigned resources, and that CAD/BOM/KiCad data and tests all remain aligned with the same underlying thread.
