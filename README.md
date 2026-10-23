@@ -5,6 +5,9 @@ A quality-planning platform for **complex products**: requirements, functions, l
 Inspired by Vector PREEvision’s RFLP and V-model views, but aimed at product owners and program managers as much as systems engineers. 
 Details stay visible; quality is the product.
 
+This project multidisciplinary paradigms from systems engineering and support both: software and hardware enginering.
+Those components are typical for complex projects, I think :-)
+
 ## Compose the product, then prove it (R-F-L-P-V kind of methodology!)
 
 Inside this project, you can use wizard for add all records on top of V-model. 
