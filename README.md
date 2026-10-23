@@ -40,6 +40,19 @@ Close the V: a test, a station, a verdict, linked back to what it proves.
 - **Quality cockpit & reports** — score, gaps, failed tests, owners, V-station health.
 - **Configuration dictionary** — variants and named SKUs filter requirements, BOM and tests together (150% vs 100%), with quality scored per configuration.
 
+## How it's looks like - you think oldschool, I think sky is a limit :-)
+
+![](/assets/ss1.png)
+![](/assets/ss2.png)
+![](/assets/ss3.png)
+![](/assets/ss4.png)
+![](/assets/ss5.png)
+![](/assets/ss6.png)
+![](/assets/ss7.png)
+![](/assets/ss8.png)
+![](/assets/ss9.png)
+
+
 ## Developer mode & how to run on Linux OS?
 
 ```bash
